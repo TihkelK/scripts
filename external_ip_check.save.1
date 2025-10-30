@@ -1,0 +1,31 @@
+#!/bin/bash
+
+EMAIL="info@tihkel.ee"
+USERNAME="tihkel"
+API_KEY=$(cat ~/scripts/auth/myzone.key)
+AUTH=$(echo -n "$USERNAME:$API_KEY" | base64)
+
+CURRENT_IP=$(curl -s ifconfig.me)
+
+if [ -f "$IP_FILE" ]; then
+    LAST_IP=$(cat "$IP_FILE")
+else
+    LAST_IP=""
+fi
+
+if [ "$CURRENT_IP" != "$LAST_IP" ]; then
+    echo "$CURRENT_IP" > "$IP_FILE"
+
+    echo "Updating Zone DNS for dev.tihkel.ee to $CURRENT_IP..."
+    RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}\n" -X PUT "https://api.zone.eu/v2/dns/tihkel.ee/a/935143" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Basic $AUTH" \
+        -d "{\"name\": \"dev.tihkel.ee\", \"destination\": \"$CURRENT_IP\"}")
+
+    echo "$RESPONSE"
+
+    echo -e "Subject: New t-router IP: $CURRENT_IP\n\nThe last t-router IP ($LAST_IP) was changed.\nNew IP: $CURRENT_IP" \
+    | msmtp "$EMAIL"
+else
+    echo "IP has not changed. Current IP: $CURRENT_IP"
+fi
