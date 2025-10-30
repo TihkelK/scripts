@@ -1,0 +1,47 @@
+#!/bin/bash
+
+purple='\e[38;5;177m'
+reset='\e[0m'
+font="small"
+
+prev_combined=""
+
+while true; do
+    artist=$(playerctl -p spotify metadata artist 2>/dev/null)
+    title=$(playerctl -p spotify metadata title 2>/dev/null)
+    status=$(playerctl -p spotify status 2>/dev/null)
+
+    if [[ "$status" == "Playing" ]]; then
+        combined="${title} - ${artist}"
+    else
+        combined=""
+    fi
+
+    if [[ "$combined" != "$prev_combined" ]]; then
+        clear
+        rows=$(tput lines)
+        cols=$(tput cols)
+
+        output=$(echo -e "${purple}$(figlet -f "$font" -w "$cols" "$combined")${reset}")
+        visible_lines=$(echo -e "$output" | sed 's/\x1B\[[0-9;]*[a-zA-Z]//g')
+
+        max_width=0
+        while IFS= read -r line; do
+            line_length=${#line}
+            (( line_length > max_width )) && max_width=$line_length
+        done <<< "$visible_lines"
+
+        line_count=$(echo -e "$output" | wc -l)
+        middle_row=$(( (rows / 2) - (line_count / 2) ))
+
+        printf "\n%.0s" $(seq 1 "$middle_row")
+        while IFS= read -r line; do
+            padding=$(( (cols - max_width) / 2 ))
+            printf "%*s\n" $((padding + ${#line})) "$line"
+        done <<< "$(echo -e "$output")"
+
+        prev_combined="$combined"
+    fi
+
+    sleep 1
+done

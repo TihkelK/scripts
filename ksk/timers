@@ -1,0 +1,104 @@
+#!/bin/bash
+
+declare -A events=(
+  ["work end"]="17:00:00"
+  ["tutu"]="23:30:00"
+)
+
+declare -A inactive_days=(
+  ["work end"]="Sat Sun"
+  ["tutu"]=""
+)
+
+today=$(date +%a)  # e.g. "Mon", "Tue"
+
+get_remaining_seconds() {
+    local target_time="$1"
+    local now=$(date +%s)
+    local today_date=$(date +%Y-%m-%d)
+    local target_epoch=$(date -d "$today_date $target_time" +%s)
+
+    # Return seconds if target time is still in future today, else -1
+    if [ "$target_epoch" -gt "$now" ]; then
+        echo $((target_epoch - now))
+    else
+        echo -1
+    fi
+}
+
+format_time_hms() {
+    local diff="$1"
+    local h=$((diff / 3600))
+    local m=$(((diff % 3600) / 60))
+    local s=$((diff % 60))
+
+    if [ "$h" -gt 0 ]; then
+        printf "%dh %dm %ds" "$h" "$m" "$s"
+    else
+        printf "%dm %ds" "$m" "$s"
+    fi
+}
+
+format_time_hm() {
+    local diff="$1"
+    local h=$((diff / 3600))
+    local m=$(((diff % 3600) / 60))
+
+    if [ "$h" -gt 0 ]; then
+        printf "%dh %dm" "$h" "$m"
+    else
+        printf "%dm" "$m"
+    fi
+}
+
+
+while true; do
+    clear
+#    echo " ⏳ | MyTimers:"
+#    echo "───────────────"
+
+    active_events=()
+
+    for label in "${!events[@]}"; do
+        days="${inactive_days[$label]}"
+        skip_event=false
+
+        # Check if today is an inactive day for this event
+        for d in $days; do
+            if [[ "$d" == "$today" ]]; then
+                skip_event=true
+                break
+            fi
+        done
+
+        if ! $skip_event; then
+            seconds=$(get_remaining_seconds "${events[$label]}")
+            if [ "$seconds" -ge 0 ]; then
+                active_events+=("$seconds:$label")
+            fi
+        fi
+    done
+
+    if [ ${#active_events[@]} -eq 0 ]; then
+        echo "No active timers today ($today)."
+        read -rp ""
+    else
+        mapfile -t sorted < <(printf '%s\n' "${active_events[@]}" | sort -n)
+
+        for i in "${!sorted[@]}"; do
+            entry="${sorted[$i]}"
+            seconds=${entry%%:*}
+            label=${entry#*:}
+
+            if [ "$i" -eq 0 ]; then
+                formatted=$(format_time_hms "$seconds")
+            else
+                formatted=$(format_time_hm "$seconds")
+            fi
+
+            echo "$formatted → $label"
+        done
+    fi
+
+    sleep 1
+done

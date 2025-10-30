@@ -1,0 +1,101 @@
+#!/bin/bash
+tput civis
+
+format_time() {
+  local T=${1%.*}
+  local M=$((T / 60))
+  local S=$((T % 60))
+  printf "%02d:%02d" $M $S
+}
+
+print_progress_bar() {
+  local pos=$1
+  local length=$2
+  local bar_length=30
+  local progress=$(( pos * bar_length / length ))
+  local bar=""
+
+  for ((i=0; i<bar_length; i++)); do
+    if (( i < progress )); then
+      bar+="="
+    elif (( i == progress )); then
+      bar+=">"
+    else
+      bar+=" "
+    fi
+  done
+  echo "$bar"
+}
+
+adjust_volume() {
+  local delta=$1
+  local current_volume
+  current_volume=$(playerctl volume -p spotify 2>/dev/null)
+  if [[ -z "$current_volume" ]]; then return; fi
+
+  new_volume=$(awk -v v="$current_volume" -v d="$delta" 'BEGIN { nv = v + d; if (nv > 1) nv=1; if (nv < 0) nv=0; print nv }')
+  playerctl volume "$new_volume" -p spotify
+}
+
+draw() {
+  clear
+  local mid_line=$((LINES / 2))
+  local col_40=$(( (COLUMNS - 40) / 2 ))
+
+  tput cup $((mid_line - 1)) $col_40
+  progress_bar=$(print_progress_bar "$pos_int" "$length_int")
+  time_pos=$(format_time "$pos_int")
+  time_len=$(format_time "$length_int")
+  echo "[$progress_bar] $time_pos / $time_len"
+
+  tput cup $((mid_line + 2)) $col_40
+}
+
+while true; do
+  pos=$(playerctl position -p spotify 2>/dev/null)
+  length_us=$(playerctl metadata mpris:length -p spotify 2>/dev/null)
+  length=$((length_us / 1000000))
+
+  pos_int=${pos%.*}
+  length_int=$length
+
+  if [[ -z "$pos_int" || -z "$length_int" || "$length_int" -eq 0 ]]; then
+    clear
+    tput cup $((LINES / 2)) $(( (COLUMNS - 26) / 2 ))
+    echo "No song playing or info unavailable"
+    sleep 1
+    continue
+  fi
+
+  draw
+
+  IFS= read -rsn1 -t 0.5 key
+
+  if [[ -z "$key" ]]; then
+    continue
+  fi
+
+if [[ "$key" == $'\x1b' ]]; then
+    read -rsn2 key2
+    case "$key2" in
+        "[A") adjust_volume 0.05 ;;    # up arrow
+        "[B") adjust_volume -0.05 ;;   # down arrow
+        "[D") playerctl previous -p spotify ;; # left arrow
+        "[C") playerctl next -p spotify ;;     # right arrow
+    esac
+elif [[ "$key" == "0" || "$key" == " " || "$key" == $'\r' ]]; then
+    playerctl play-pause -p spotify
+elif [[ "$key" == "q" ]]; then
+    new_pos=$((pos_int - 5))
+    (( new_pos < 0 )) && new_pos=0
+    playerctl position "$new_pos" -p spotify
+elif [[ "$key" == "e" ]]; then
+    new_pos=$((pos_int + 5))
+    (( new_pos > length_int )) && new_pos=$length_int
+    playerctl position "$new_pos" -p spotify
+fi
+
+
+
+
+done

@@ -1,0 +1,138 @@
+#!/bin/bash
+
+# --- CONFIG ---
+DEVICE_IP="192.168.1.4"
+was_home=0
+offline_since=0
+offline_delay=2
+
+# --- CHECK IF DEVICE DISPLAY IS ON ---
+is_tv_on() {
+    timeout 5 adb connect "$DEVICE_IP" >/dev/null 2>&1
+    state=$(timeout 5 adb shell dumpsys display 2>/dev/null | grep 'mState=' | cut -d'=' -f2)
+    [[ "$state" == "ON" ]]
+}
+
+# --- CHECK IF DEVICE WAS ONLINE AT THE START OF THE SCRIPT ---
+if is_tv_on; then
+    echo "[DEBUG] Device ONLINE at script start"
+    was_home=1
+else
+    echo "[DEBUG] Device OFFLINE at script start"
+    was_home=0
+fi
+
+# --- MAIN LOOP ---
+while true; do
+    now=$(date +%s)
+    # IF DEVICE IS ONLINE
+    if is_tv_on; then
+        echo "[DEBUG] Device online, was_home=$was_home, offline_since=$offline_since"
+
+        # --- SET VOLUME DOWN FOR SET TIME ---
+        if [[ $(date +%H) -eq 11 && was_home -eq 1 ]]; then
+            pactl set-sink-volume @DEFAULT_SINK@ 65%
+            espeak-ng -v en-gb-x-r "turning volume down"
+        fi
+
+        if [[ $was_home -eq 0 ]]; then
+            current_hour=$(date +%H)
+            # IF ITS MORNING THEN RUN MORNING COMMANDS
+            if (( current_hour >= 6 && current_hour < 11 )); then
+                echo "$(date '+%F %T') running MORNING commands..."
+                (
+                    # --- MORNING COMMANDS ---
+                    pactl set-sink-volume @DEFAULT_SINK@ 55%
+                    espeak-ng -v en-gb-x-r "good morning!"
+                    node ~/scripts/tuya-control/remote.js bulb-1 on
+                    node ~/scripts/tuya-control/remote.js bulb-1 mode color orangebulb
+                    node ~/scripts/tuya-control/remote.js bulb-2 on
+                    node ~/scripts/tuya-control/remote.js bulb-2 mode color orangebulb
+                    node ~/scripts/tuya-control/remote.js plug on
+                    node ~/scripts/tuya-control/remote.js led on
+                    node ~/scripts/tuya-control/remote.js led mode color orangeled
+                    adb shell input keyevent KEYCODE_WAKEUP
+                    playerctl volume 0.8 -p spotify
+                    playerctl play -p spotify
+                    playerctl next -p spotify
+                    hyprctl dispatch dpms on HDMI-A-1
+                    adb shell input keyevent KEYCODE_WAKEUP
+                    adb shell input text "q"
+                    adb shell input keyevent KEYCODE_HOME
+                    adb shell input keyevent KEYCODE_HOME
+                    sleep 2
+                    adb shell input keyevent KEYCODE_DPAD_CENTER
+                    adb shell input text "q"
+                    adb shell input keyevent KEYCODE_ENTER
+                    adb shell input text "ssh%stihkel@192.168.1.2"
+                    adb shell input keyevent KEYCODE_ENTER
+                    adb shell input text "ksk"
+                    adb shell input keyevent KEYCODE_ENTER
+                ) &
+            else
+                echo "$(date '+%F %T') running WELCOME BACK commands..."
+                (
+                    # --- WELCOME BACK COMMANDS ---
+                    pactl set-sink-volume @DEFAULT_SINK@ 100%
+                    espeak-ng -v en-gb-x-r "welcome back!"
+                    node ~/scripts/tuya-control/remote.js bulb-1 on
+                    node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+                    node ~/scripts/tuya-control/remote.js bulb-2 on
+                    node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+                    node ~/scripts/tuya-control/remote.js led on
+                    node ~/scripts/tuya-control/remote.js led mode scene
+                    node ~/scripts/tuya-control/remote.js plug on
+                    adb shell input keyevent KEYCODE_WAKEUP
+                    playerctl volume 0.8 -p spotify
+                    playerctl play -p spotify
+                    playerctl next -p spotify
+                    hyprctl dispatch dpms on HDMI-A-1
+                    adb shell input keyevent KEYCODE_WAKEUP
+                    adb shell input text "q"
+                    adb shell input keyevent KEYCODE_HOME
+                    adb shell input keyevent KEYCODE_HOME
+                    sleep 2
+                    adb shell input keyevent KEYCODE_DPAD_CENTER
+                    adb shell input text "q"
+                    adb shell input keyevent KEYCODE_ENTER
+                    adb shell input text "ssh%stihkel@192.168.1.2"
+                    adb shell input keyevent KEYCODE_ENTER
+                    adb shell input text "ksk"
+                    adb shell input keyevent KEYCODE_ENTER
+                ) &
+            fi
+            was_home=1
+            offline_since=0
+        fi
+
+    else
+        echo "[DEBUG] Device offline, was_home=$was_home, offline_since=$offline_since"
+        if [[ $was_home -eq 1 ]]; then
+            # START OFFLINE COMMANDS TIMER
+            if (( offline_since == 0 )); then
+                offline_since=$now
+                echo "[DEBUG] Starting offline timer: offline_since=$offline_since"
+            fi
+            diff=$(( now - offline_since ))
+            remaining=$(( offline_delay - diff ))
+            if (( remaining > 0 )); then
+                echo -ne "\rDevice offline. Offline commands in $(printf '%02d:%02d:%02d' $((remaining/3600)) $(((remaining%3600)/60)) $((remaining%60))) "
+            else
+                # IF OFFLINE COMMANDS TIMER ENDS THEN RUN OFFLINE COMMANDS
+                echo -e "\n$(date '+%F %T') running offline commands..."
+                (
+                    # --- OFFLINE COMMANDS ---
+                    swaylock -f
+                    hyprctl dispatch dpms off HDMI-A-1
+                    node ~/scripts/tuya-control/remote.js led off
+                    node ~/scripts/tuya-control/remote.js plug off
+                    node ~/scripts/tuya-control/remote.js bulb-1 off
+                    node ~/scripts/tuya-control/remote.js bulb-2 off
+                ) &
+                was_home=0
+                offline_since=0
+            fi
+        fi
+    fi
+    sleep 10
+done

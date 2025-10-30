@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Restart PipeWire
+rm -rf ~/.config/pipewire{,-pulse}
+systemctl --user restart pipewire pipewire-pulse
+
+# Wait until at least 4 sinks appear (adjust number if you expect more/less)
+echo "Waiting for audio devices..."
+for i in {1..10}; do
+    sinks=$(pactl list short sinks | awk '{print $2}')
+    count=$(echo "$sinks" | wc -l)
+    if [ "$count" -ge 4 ]; then
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "$sinks" ]; then
+    echo "No sinks found! Exiting..."
+    exit 1
+fi
+
+# Build slaves list
+slaves=$(echo "$sinks" | tr '\n' ',' | sed 's/,$//')
+
+# Remove old combined sink if it exists
+if pactl list short sinks | grep -q '^.*\scombined\s'; then
+    pactl unload-module module-combine-sink 2>/dev/null
+fi
+
+# Load fresh combined sink
+pactl load-module module-combine-sink sink_name=combined slaves=$slaves
+pactl set-default-sink combined
+
+echo "Combined sink created with: $slaves"

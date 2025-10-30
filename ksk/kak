@@ -1,0 +1,11 @@
+#!/bin/bash
+clear
+SESSION_NAME="kiosk"
+
+while true; do
+  if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "tmux session '$SESSION_NAME' not found. Running ksk..."
+    bash ~/scripts/ksk/ksk
+  fi
+  sleep 1
+done

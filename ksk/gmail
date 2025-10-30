@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# --- CONFIG ---
+EMAIL="$(cat ~/scripts/auth/gmail)"
+APP_PASSWORD="$(cat ~/scripts/auth/gmail.app-passwd)"
+# --- END OF CONFIG ---
+
+ATOM_FEED="https://mail.google.com/mail/feed/atom"
+
+# Fetch the Atom XML feed
+XML=$(curl -su "$EMAIL:$APP_PASSWORD" "$ATOM_FEED" 2>/dev/null)
+
+echo "Unread Emails:"
+
+# Parse and print entries (subject + author/email)
+echo "$XML" | xmllint --format - 2>/dev/null | awk '
+  function trim(s) {
+    gsub(/^[ \t]+|[ \t]+$/, "", s)
+    return s
+  }
+
+  /<entry>/,/<\/entry>/ {
+    if ($0 ~ /<title>/) {
+      gsub(/<\/?title>/, "", $0)
+      title = trim($0)
+    }
+    if ($0 ~ /<name>/) {
+      gsub(/<\/?name>/, "", $0)
+      name = trim($0)
+    }
+    if ($0 ~ /<email>/) {
+      gsub(/<\/?email>/, "", $0)
+      email = trim($0)
+    }
+    if ($0 ~ /<\/entry>/) {
+      print "-----------------------------"
+      print name " <" email ">"
+      print title
+      name=""; email=""; title=""
+    }
+  }
+'

@@ -1,0 +1,243 @@
+#!/bin/bash
+
+# --- COLORS ---
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+RESET="\e[0m"
+
+# --- SETTINGS ---
+LISTEN_MODE=0
+LAST_COMMAND_TIME=0
+CURRENT_VOLUME=""
+LISTEN_VOLUME=60%
+TIMEOUT=15
+export VOSK_LOG_LEVEL=-1
+speak="espeak-ng -v en-gb-x-rp"
+
+# --- SHORTCUTS ---
+TV="192.168.1.4"
+WAKE_UP_TV="
+adb connect $TV
+hyprctl dispatch dpms on HDMI-A-1
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell input text \"q\"
+adb shell input keyevent KEYCODE_HOME
+adb shell input keyevent KEYCODE_HOME
+sleep 2
+adb shell input keyevent KEYCODE_DPAD_CENTER
+adb shell input text \"q\"
+adb shell input keyevent KEYCODE_ENTER
+adb shell input text \"ssh%stihkel@192.168.1.2\"
+adb shell input keyevent KEYCODE_ENTER
+adb shell input text \"ksk\"
+adb shell input keyevent KEYCODE_ENTER
+"
+
+# --- JARVIS ---
+echo " 🤖 | Max:"
+echo "───────────"
+handle_command() {
+    local cmd="$1"
+
+    # --- SKIP SKISO WORDS ---
+    if [[ "$cmd" =~ ^(huh|the|okay|you\'re welcome)$ || "$cmd" == *"yes sir"* || "$cmd" == *"wait"* ]]; then
+        return
+    fi
+
+    # --- WAKE WORDS ---
+    wake_words="(max|lex|rex)"
+    if [[ "$cmd" =~ ^$wake_words\ .+ ]]; then
+        LISTEN_MODE=1
+        LAST_COMMAND_TIME=$(date +%s)
+        CURRENT_VOLUME=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1)
+        pactl set-sink-volume @DEFAULT_SINK@ $LISTEN_VOLUME
+        echo -e "${GREEN}[$(date '+%H:%M:%S')] | Listening...${RESET}"
+    elif [[ "$cmd" =~ ^$wake_words$ ]]; then
+        LISTEN_MODE=1
+        LAST_COMMAND_TIME=$(date +%s)
+        CURRENT_VOLUME=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1)
+        pactl set-sink-volume @DEFAULT_SINK@ $LISTEN_VOLUME
+        echo -e "${GREEN}[$(date '+%H:%M:%S')] | Listening...${RESET}"
+        $speak "yes sir?"
+        return
+    fi
+
+    # --- SHOW HEARD COMMANDS ---
+    if [[ $LISTEN_MODE -eq 0 ]]; then
+        echo -e "${RED}$cmd${RESET}"
+        return
+    fi
+
+    # --- TIMEOUT CHECK ---
+    local now=$(date +%s)
+    if (( now - LAST_COMMAND_TIME > TIMEOUT )); then
+        LISTEN_MODE=0
+        echo -e "${YELLOW}[$(date '+%H:%M:%S')] | Timeout. Exiting...${RESET}"
+        $speak "timeout"
+        pactl set-sink-volume @DEFAULT_SINK@ "$CURRENT_VOLUME"
+        return
+    fi
+    LAST_COMMAND_TIME=$now
+
+    # --- EXIT WORD ---
+    if [[ "$cmd" == *"thanks"* || "$cmd" == *"thank you" ]]; then
+        LISTEN_MODE=0
+        echo -e "${GREEN}[$(date '+%H:%M:%S')] | Exiting...${RESET}"
+        $speak "you're welcome"
+        pactl set-sink-volume @DEFAULT_SINK@ "$CURRENT_VOLUME"
+        return
+    fi
+
+    # --- COMMANDS ---
+    case "$cmd" in
+        # --- SPOTIFY ---
+        *"play"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Playing...${RESET}" && $speak "okay"
+            playerctl play -p spotify
+            ;;
+        *"pause"*|*"stop"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Stopping...${RESET}" && $speak "okay"
+            playerctl stop -p spotify
+            ;;
+        *"skip"*|*"skin"*|*"skill"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Skipping...${RESET}" && $speak "okay"
+            playerctl next -p spotify
+            ;;
+        *"volume up"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Volume up...${RESET}" && $speak "okay"
+            pactl set-sink-volume @DEFAULT_SINK@ +25%
+            ;;
+        *"volume down"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Volume down...${RESET}" && $speak "okay"
+            pactl set-sink-volume @DEFAULT_SINK@ -25%
+            ;;
+
+        # --- TV ---
+        *"wake up tv"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on TV...${RESET}" && $speak "okay"
+            eval "$WAKE_UP_TV"
+            ;;
+        *"turn off tv"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning off TV...${RESET}" && $speak "okay"
+            adb connect $TV
+            adb shell input keyevent KEYCODE_POWER
+            ;;
+
+        # --- LIGHTS ---
+        *"lights on"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on lights...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode scene
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+        *"lights off"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning off lights...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 off
+            node ~/scripts/tuya-control/remote.js bulb-2 off
+            node ~/scripts/tuya-control/remote.js led off
+            node ~/scripts/tuya-control/remote.js plug off
+            ;;
+        *"red"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on red mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode color red
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode color red
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode color red
+            node ~/scripts/tuya-control/remote.js plug off
+            ;;
+        *"movie"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on movie mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode color magenta
+            node ~/scripts/tuya-control/remote.js led off
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+        *"orange"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on movie mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode color orangebulb
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode color orangebulb
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode color orangeled
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+
+        # --- OTHER ---
+        *"shut down"*)
+            echo -e "${GREEN}[$(timestamp)] | Shutting down...${RESET}" && $speak "shutting down"
+            node ~/scripts/tuya-control/remote.js led off
+            node ~/scripts/tuya-control/remote.js plug off
+            node ~/scripts/tuya-control/remote.js bulb-2 off
+            node ~/scripts/tuya-control/remote.js bulb-1 off
+            adb connect $TV
+            playerctl stop -p spotify
+            nohup bash -c "sleep 3 && adb shell input keyevent KEYCODE_SLEEP" &
+            #nohup bash -c "sleep 2 && swaylock -f && hyprctl dispatch dpms off HDMI-A-1" &
+            adb shell input text "q"
+            ;;
+        *"wake up")
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Waking up...${RESET}" && $speak "good moring"
+            pactl set-sink-volume @DEFAULT_SINK@ 65%
+            playerctl volume 0.6 -p spotify
+            eval "$WAKE_UP_TV"
+            ;;
+        *"i'm home"*|*"i'm back"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Waking up...${RESET}" && $speak "welcome back"
+            pactl set-sink-volume @DEFAULT_SINK@ 100%
+            playerctl volume 0.8 -p spotify
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode scene
+            node ~/scripts/tuya-control/remote.js plug on
+            adb connect $TV
+            playerctl play -p spotify
+            playerctl next -p spotify
+            adb shell input keyevent KEYCODE_WAKEUP
+            hyprctl dispatch dpms on HDMI-A-1
+            ;;
+        *"question"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Question received...${RESET}"
+            echo "AI thinking..."
+            ai_answer=$(echo "give short answer: $cmd" | ollama run llama2)
+            echo -e "${GREEN}$ai_answer${RESET}" && $speak "$ai_answer"
+            ;;
+        *)
+            echo -e "${RED}[$(date '+%H:%M:%S')] | $cmd - Not a command.${RESET}"
+            ;;
+    esac
+}
+
+
+# --- MAIN LOOP ---
+while read -r line; do
+    if [[ "$line" == HEARD:* ]]; then
+        command="${line#HEARD: }"
+
+        # --- WORD COUNTER ---
+        words=$(cat ~/scripts/auth/ksk.theword)
+        matches=0
+        for w in $words; do
+            count_for_word=$(grep -o -i "\b$w\b" <<< "$command" | wc -l)
+            ((matches+=count_for_word))
+        done
+        if (( matches > 0 )); then
+            ((count+=matches))
+            echo -e "${GREEN}MONKEYS: $count${RESET}"
+        fi
+
+        handle_command "$command"
+    fi
+done < <(python3 -u ~/scripts/max/mic-listener.py 2>/dev/null)

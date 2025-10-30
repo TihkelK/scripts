@@ -1,0 +1,112 @@
+#!/bin/bash
+
+# --- CONFIG ---
+# COORDINATES
+zone_lat=59.42166370602925
+zone_lon=24.802889712250273
+
+kodu_lat=59.40670050698688
+kodu_lon=24.682783432066483
+# --- END OF CONFIG ---
+
+# --- DEFAULTS ---
+bus_number=""
+final_stop=""
+address_name=""
+
+# --- PARAMS ---
+while getopts "b:f:a:" opt; do
+  case $opt in
+    b) bus_number="$OPTARG" ;;
+    f) final_stop="$OPTARG" ;;
+    a) address_name="$OPTARG" ;;
+    *) echo "Usage: $0 -b bussinumber -f \"lõpp-peatus\" -a [zone|kodu]"; exit 1 ;;
+  esac
+done
+
+# --- CHECK REQUIRED PARAMS ---
+if [[ -z "$bus_number" || -z "$final_stop" || -z "$address_name" ]]; then
+  echo "VIGA: Parameetrid -b, -f ja -a on kohustuslikud."
+  echo "Kasutus: $0 -b bussinumber -f \"lõpp-peatus\" -a [zone|kodu]"
+  exit 1
+fi
+
+# --- SET COORDINATES FROM -a PARAM ---
+case "$address_name" in
+  zone)
+    target_lat=$zone_lat
+    target_lon=$zone_lon
+    ;;
+  kodu)
+    target_lat=$kodu_lat
+    target_lon=$kodu_lon
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+
+# --- MIDDLE RED DOT ---
+(
+  while true; do
+    row=$(( $(tput lines) / 2 ))
+    col=$(( $(tput cols) / 2 ))
+    tput cup "$row" "$col"
+    echo -ne "\e[1;31m⬤\e[0m"
+    sleep 0.5
+  done
+) &
+dot_pid=$!
+
+# --- CLEANUP ---
+cleanup() {
+    kill "$dot_pid" 2>/dev/null
+    tput sgr0
+    echo
+    exit
+}
+trap cleanup INT TERM
+
+# --- MAIN LOOP ---
+while true; do
+    # FILTER API BUS LOCATIONS
+    buses=$(curl -s https://transport.tallinn.ee/gps.txt | awk -F, -v b="$bus_number" -v f="$final_stop" '$2 == b && $10 == f')
+    # GO THROUGH EVERY FOUND BUS
+    closest_line=""
+    closest_dist=99999999
+    while IFS= read -r line; do
+        # GET COORDINATES IN MICRODEGREES
+        raw_lon=$(echo "$line" | cut -d, -f3)
+        raw_lat=$(echo "$line" | cut -d, -f4)
+        # SKIP INVALID COORDINATES
+        if ! [[ "$raw_lon" =~ ^[0-9]+$ ]] || ! [[ "$raw_lat" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
+        # CONVERT MICRODEGREES TO DECIMAL
+        lon=$(awk "BEGIN {printf \"%.8f\", $raw_lon/1000000}")
+        lat=$(awk "BEGIN {printf \"%.8f\", $raw_lat/1000000}")
+        # CALCULATE DISTANCE
+        dist=$(awk -v lat="$lat" -v lon="$lon" -v tlat="$target_lat" -v tlon="$target_lon" \
+            'BEGIN {print (lat - tlat)^2 + (lon - tlon)^2}')
+        # IF CLOSER THAT LAST BUS THEN UPDATE TO CLOSEST
+        is_less=$(awk -v dist="$dist" -v closest="$closest_dist" 'BEGIN {print (dist < closest) ? 1 : 0}')
+        if [ "$is_less" -eq 1 ]; then
+            closest_dist=$dist
+            closest_line=$line
+        fi
+    done <<< "$buses"
+    # GET CLOSEST BUS COORDINATES
+    raw_lon=$(echo "$closest_line" | cut -d, -f3)
+    raw_lat=$(echo "$closest_line" | cut -d, -f4)
+    # IF VALID THEN DISLPLAY ON MAPSCII
+    if [[ -n "$raw_lon" && -n "$raw_lat" ]]; then
+        lon=$(awk "BEGIN {printf \"%.6f\", $raw_lon/1000000}")
+        lat=$(awk "BEGIN {printf \"%.6f\", $raw_lat/1000000}")
+        node ~/mapscii/main.js -z 10 -g "${lat},${lon}" &
+        mapscii_pid=$!
+        wait $mapscii_pid
+    else
+        echo "Ühtegi sobivat bussi ei leitud: $bus_number -> $final_stop"
+        sleep 10
+    fi
+done

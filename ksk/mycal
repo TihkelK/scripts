@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+show_all=0
+if [[ "$1" == "-a" ]]; then
+    show_all=1
+fi
+
+#ICAL_URLS=(
+#$(cat ~/scripts/auth/mycal.url)
+#)
+mapfile -t ICAL_URLS < ~/scripts/auth/mycal.url
+
+ICAL_COLORS=(
+"\033[90m" # TAVA
+"\033[38;5;213m" # MIA
+"\033[38;5;99m" # MINA
+"\033[38;5;81m" # MM
+"\033[93m" # SYNNAD
+"\033[38;5;120m" # RAHA
+"\033[38;5;208m"
+"\033[38;5;217m" #WORK
+)
+RESET="\033[0m"
+TMPDIR=$(mktemp -d)
+
+#echo " 📅 | MyCalendar:"
+#echo "─────────────────"
+
+declare -A DAYS
+ORDERED_KEYS=()
+max_days=30
+if [ $show_all -eq 0 ]; then
+    max_days=3
+fi
+
+for i in $(seq 0 $((max_days - 1))); do
+    date_str=$(date -d "+$i day" +%Y%m%d)
+    if [ $i -eq 0 ]; then
+        label="  Täna  "
+    elif [ $i -eq 1 ]; then
+        label=" Homme  "
+    elif [ $i -eq 2 ]; then
+        label="Ülehomme"
+    else
+        label=$(date -d "+$i day" +%d.%m)
+    fi
+    DAYS[$date_str]="$label"
+    ORDERED_KEYS+=("$date_str")
+done
+
+for i in "${!ICAL_URLS[@]}"; do
+    ICAL_URL="${ICAL_URLS[$i]}"
+    # convert webcal:// to https://
+    ICAL_URL="${ICAL_URL/#webcal:\/\//https://}"
+    TMPFILE="$TMPDIR/cal_$i.ics"
+    curl -s "$ICAL_URL" -o "$TMPFILE" || continue
+
+    awk -v idx="$i" '
+    BEGIN { in_event=0 }
+    /^BEGIN:VEVENT/ { in_event=1; summary=""; dtstart=""; }
+    /^END:VEVENT/ {
+        if (in_event && dtstart != "" && summary != "") {
+            print idx "\t" dtstart "\t" summary
+        }
+        in_event=0
+    }
+    /^SUMMARY:/ && in_event { sub(/^SUMMARY:/, ""); summary=$0 }
+    /^DTSTART/ && in_event { sub(/^DTSTART[^:]*:/,""); dtstart=$0 }
+    ' "$TMPFILE"
+done | sort -k2,2n > "$TMPDIR/events.txt"
+
+
+day_counter=0
+for day in "${ORDERED_KEYS[@]}"; do
+    header="${DAYS[$day]}"
+    events=$(awk -F'\t' -v d="$day" '$2 ~ "^" d {print}' "$TMPDIR/events.txt")
+
+    if [ $day_counter -lt 3 ]; then
+        # Always show first three days, even if empty
+        echo "──┬────────── $header ────────────"
+        if [ -n "$events" ]; then
+            echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
+                COLOR="${ICAL_COLORS[$color_idx]}"
+                echo -e "${COLOR}  │ ${summary}${RESET}"
+            done
+        fi
+    else
+        # After first three days
+        if [ $show_all -eq 0 ]; then
+            # Without -a: stop after first three days
+            break
+        fi
+        # With -a: show only days with events
+        #if [ -z "$events" ]; then
+        #    ((day_counter++))
+        #    continue
+        #fi
+
+        # Print separator before day 4 only once
+        if [ $day_counter -eq 3 ]; then
+            echo
+            echo
+        fi
+
+        echo "──┬────────── $header ────────────"
+        echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
+            COLOR="${ICAL_COLORS[$color_idx]}"
+            echo -e "${COLOR}  │ ${summary}${RESET}"
+        done
+    fi
+    ((day_counter++))
+done
+
+
+
+rm -rf "$TMPDIR"
+read -rp ""
