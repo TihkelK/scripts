@@ -17,8 +17,19 @@ const COLORS = {
   red: '000003e8000a',
   blue: '00f003e80064',
   magenta: '012d03e80064',
-  orangeled: '000303e80091',
-  orangebulb: '001603e80096'
+//  orangeled: '000303e80091',
+  orangeled: '000303e801ef',
+//  orangebulb: '001603e80096'
+  orangebulb: '000f03e80334',
+  blueled: '00b403e80093',
+  bluebulb: '00f103e801f4',
+};
+
+const SCENES = {
+  purpleled: 'c91c1c02016503e803e8000000001c1c02013103e803e800000000',
+  purplebulb: '00303002014703e803e80000000030300200fa03e803e800000000',
+  disco: '05464601000003e803e800000000464601007803e803e80000000046460100f003e803e800000000464601003d03e803e80000000046460100ae03e803e800000000464601011303e803e800000000',
+  hardcore: 'cc646401000003e803e800000000646401005803e803e800000000646401011e03e803e80000000064640100ed03e803e80000000064640100bc03e803e800000000646401001d03e803e800000000646401010e03e803e800000000646401003c02a003e800000000',
 };
 
 const client = new TuyaOpenApiClient({
@@ -67,27 +78,36 @@ async function getStatus() {
     } else if (action === 'status') {
       await getStatus();
     } else if (action === 'mode') {
-      if (!device.modeDps) {
-        console.log('⚠️ This device does not support mode changes.');
-        return;
-      }
-      if (!param || !['white','scene','color'].includes(param)) {
-        console.log('Specify mode: white, scene, or color');
-        return;
-      }
-
-if (param.toLowerCase() === 'color') {
-  await sendCommand(device.modeDps, 'colour'); // always switch to color mode
-  if (colorName && COLORS[colorName.toLowerCase()]) {
-    await sendCommand(device.colorDps, COLORS[colorName.toLowerCase()]); // send selected color
-    console.log(`✅ ${deviceName} set to color mode: ${colorName}!`);
-  } else {
-    console.log(`✅ ${deviceName} set to color mode!`);
+  if (!device.modeDps) {
+    console.log('⚠️ This device does not support mode changes.');
+    return;
   }
-} else {
-  await sendCommand(device.modeDps, param.toLowerCase());
-  console.log(`✅ ${deviceName} set to ${param} mode!`);
-}
+  if (!param || !['white','scene','color'].includes(param)) {
+    console.log('Specify mode: white, scene, or color');
+    return;
+  }
+
+  if (param.toLowerCase() === 'color') {
+    await sendCommand(device.modeDps, 'colour');
+    if (colorName && COLORS[colorName.toLowerCase()]) {
+      await sendCommand(device.colorDps, COLORS[colorName.toLowerCase()]);
+      console.log(`✅ ${deviceName} set to color mode: ${colorName}!`);
+    } else {
+      console.log(`✅ ${deviceName} set to color mode!`);
+    }
+  } else if (param.toLowerCase() === 'scene') {
+    await sendCommand(device.modeDps, 'scene');
+    if (colorName && SCENES[colorName.toLowerCase()]) {
+      await sendCommand('scene_data', SCENES[colorName.toLowerCase()]);
+      console.log(`✅ ${deviceName} set to scene: ${colorName}!`);
+    } else {
+      console.log(`✅ ${deviceName} set to scene mode!`);
+    }
+  } else {
+    await sendCommand(device.modeDps, param.toLowerCase());
+    console.log(`✅ ${deviceName} set to ${param} mode!`);
+  }
+
 
 
 

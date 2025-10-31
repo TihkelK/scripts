@@ -1,0 +1,23 @@
+#!/bin/bash
+journalctl -u ssh.service -f \
+| grep --line-buffered -E 'Accepted|Failed|Invalid|Disconnected' \
+| awk '{
+  for(i=1;i<=NF;i++)
+    if($i=="Accepted"||$i=="Failed"||$i=="Invalid"||$i=="Disconnected"){type=$i; break}
+
+  if (type=="Accepted") {
+    user=$(i+3); ip=$(i+5); method=$(i+1)
+  } 
+  else if (type=="Failed") {
+    if ($(i+4)=="user") {user=$(i+5); ip=$(i+7)} else {user=$(i+3); ip=$(i+5)}
+    method=$(i+1)
+  } 
+  else if (type=="Invalid") {
+    user=$(i+2); ip=$(i+4); method=""
+  }
+  else if (type=="Disconnected") {
+    user=$(i+4); ip=$(i+5); method=""
+  }
+
+  printf "[%s] %s %s@%s %s\n", $3, type, user, ip, method
+}'

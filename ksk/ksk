@@ -50,7 +50,7 @@ pane7=$(tmux display-message -p "#{pane_id}")
 tmux split-window -h -t "$pane7" 'cava'
 pane8=$(tmux display-message -p "#{pane_id}")
 # PANE9
-tmux split-window -h -t "$pane7" "watch -ctn1 'echo -e \"\e[35m\$(figlet -f bigascii12.tlf kiosk)\e[0m\"'"
+tmux split-window -h -t "$pane7" "bash ~/scripts/ssh-auth"
 pane9=$(tmux display-message -p "#{pane_id}")
 # PANE10
 ssh_ip=$(echo $SSH_CLIENT | awk '{print $1}')
@@ -87,7 +87,7 @@ tmux resize-pane -t "$pane2" -x 6
 tmux resize-pane -t "$pane1" -x 10
 tmux resize-pane -t "$pane9" -y 5
 
-# --- SHOW/HIDE WHEN SPOTIFY PLAYING ---
+# --- SHOW/HIDE/MODIFY PANES WHEN SPOTIFY PLAYING ---
 (
   hidden=false
   while true; do

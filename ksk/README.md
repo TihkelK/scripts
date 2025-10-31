@@ -16,5 +16,6 @@ bash ~/scripts/ksk/ksk
 * bus : Shows the current closest bus (location taken from TLT bus API) to set destination from home/work/etc with mapscii ascii map.
 * timers : Counts down the set timers with other customizabilities.
 * gmail : Displays current unread emails from set gmail account.
+* ssh-auth : Shows Accepted and Failed tries for ssh connections to machine.
 * w : Uses linux built in "w" command and just shows who is on the machine currently.
 * check-if-home : Starts a background bash script that checks a set devices IP online status to activate MORING or WELCOME BACK commands.

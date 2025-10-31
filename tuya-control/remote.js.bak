@@ -7,10 +7,22 @@ const API_SECRET = execSync(`cat ${process.env.HOME}/scripts/auth/tuya-api.secre
 const REGION = 'eu';
 
 const DEVICES = {
-  'bulb-1': { id: 'bf6e935014ed7bc0fbqpjm', dps: 'switch_led', modeDps: 'work_mode' },
-  'bulb-2': { id: 'bf6b60b62e8c124a3f0zxa', dps: 'switch_led', modeDps: 'work_mode' },
-  'led': { id: 'bf5d15b4790c0d313aktzn', dps: 'switch_led', modeDps: 'work_mode' },
+  'bulb-1': { id: 'bf6e935014ed7bc0fbqpjm', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
+  'bulb-2': { id: 'bf6b60b62e8c124a3f0zxa', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
+  'led': { id: 'bf5d15b4790c0d313aktzn', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
   'plug': { id: 'bf432551fd7c1c8a7293kp', dps: 'switch_1' }
+};
+
+const COLORS = {
+  red: '000003e8000a',
+  blue: '00f003e80064',
+  magenta: '012d03e80064',
+//  orangeled: '000303e80091',
+  orangeled: '000303e801ef',
+//  orangebulb: '001603e80096'
+  orangebulb: '000f03e80334',
+  blueled: '00b403e80093',
+  bluebulb: '00f103e801f4',
 };
 
 const client = new TuyaOpenApiClient({
@@ -25,7 +37,7 @@ if (args.length < 2) {
   process.exit(1);
 }
 
-const [deviceName, action, param] = args;
+const [deviceName, action, param, colorName] = args;
 const device = DEVICES[deviceName];
 if (!device) {
   console.log('Unknown device. Choose "bulb-1", "bulb-2", "led", or "plug".');
@@ -45,7 +57,7 @@ async function getStatus() {
     path: `/v1.0/iot-03/devices/${device.id}/status`,
     method: 'GET'
   });
-  console.log('Full device status:', JSON.stringify(res.result, null, 2));
+  console.log('Full device status:', JSON.stringify(res.data.result, null, 2));
 }
 
 (async () => {
@@ -68,11 +80,21 @@ async function getStatus() {
         return;
       }
 
-      // Map "color" parameter to "colour" DPS value
-      const modeValue = param.toLowerCase() === 'color' ? 'colour' : param.toLowerCase();
+if (param.toLowerCase() === 'color') {
+  await sendCommand(device.modeDps, 'colour'); // always switch to color mode
+  if (colorName && COLORS[colorName.toLowerCase()]) {
+    await sendCommand(device.colorDps, COLORS[colorName.toLowerCase()]); // send selected color
+    console.log(`✅ ${deviceName} set to color mode: ${colorName}!`);
+  } else {
+    console.log(`✅ ${deviceName} set to color mode!`);
+  }
+} else {
+  await sendCommand(device.modeDps, param.toLowerCase());
+  console.log(`✅ ${deviceName} set to ${param} mode!`);
+}
 
-      await sendCommand(device.modeDps, modeValue);
-      console.log(`✅ ${deviceName} set to ${param} mode!`);
+
+
     } else {
       console.log('Unknown action. Use on/off/status/mode.');
     }

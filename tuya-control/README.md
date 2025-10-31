@@ -5,6 +5,8 @@
 ```
 node ~/scripts/tuya-control/remote.js <device> <on|off|status|mode> [white|scene|color]
 ```
+
+## Modifying:
 * color codes must be set manually by:
     1. turning on the device
     2. switch to the color desired from the smartlife app

@@ -128,11 +128,11 @@ handle_command() {
         *"lights on"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on lights...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js bulb-1 on
-            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js bulb-2 on
-            node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js led on
-            node ~/scripts/tuya-control/remote.js led mode scene
+            node ~/scripts/tuya-control/remote.js led mode scene purpleled
             node ~/scripts/tuya-control/remote.js plug on
             ;;
         *"lights off"*)
@@ -155,20 +155,50 @@ handle_command() {
         *"movie"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on movie mode...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js bulb-1 on
-            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js bulb-2 on
             node ~/scripts/tuya-control/remote.js bulb-2 mode color magenta
             node ~/scripts/tuya-control/remote.js led off
             node ~/scripts/tuya-control/remote.js plug on
             ;;
         *"orange"*)
-            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on movie mode...${RESET}" && $speak "okay"
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on orange mode...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js bulb-1 on
             node ~/scripts/tuya-control/remote.js bulb-1 mode color orangebulb
             node ~/scripts/tuya-control/remote.js bulb-2 on
             node ~/scripts/tuya-control/remote.js bulb-2 mode color orangebulb
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode color orangeled
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+        *"ocean"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on ocean mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode color bluebulb
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode color bluebulb
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode color blueled
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+        *"hardcore"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on hardcore mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene hardcore
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene hardcore
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode scene hardcore
+            node ~/scripts/tuya-control/remote.js plug on
+            ;;
+        *"disco"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on disco mode...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js bulb-1 on
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene disco
+            node ~/scripts/tuya-control/remote.js bulb-2 on
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene disco
+            node ~/scripts/tuya-control/remote.js led on
+            node ~/scripts/tuya-control/remote.js led mode scene disco
             node ~/scripts/tuya-control/remote.js plug on
             ;;
 
@@ -196,11 +226,11 @@ handle_command() {
             pactl set-sink-volume @DEFAULT_SINK@ 100%
             playerctl volume 0.8 -p spotify
             node ~/scripts/tuya-control/remote.js bulb-1 on
-            node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-1 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js bulb-2 on
-            node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+            node ~/scripts/tuya-control/remote.js bulb-2 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js led on
-            node ~/scripts/tuya-control/remote.js led mode scene
+            node ~/scripts/tuya-control/remote.js led mode scene purpleled
             node ~/scripts/tuya-control/remote.js plug on
             adb connect $TV
             playerctl play -p spotify

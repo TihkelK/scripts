@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Color codes
+RED="\033[31m"
+GREEN="\033[32m"
+RESET="\033[0m"
+
+journalctl -u ssh.service -f \
+| grep --line-buffered -E 'Accepted|Failed|Invalid|Disconnected' \
+| awk -v RED="$RED" -v GREEN="$GREEN" -v RESET="$RESET" '{
+  type=""
+  for(i=1;i<=NF;i++)
+    if($i=="Accepted"||$i=="Failed"||$i=="Invalid"||$i=="Disconnected"){type=$i; break}
+
+  if (type=="Accepted") {
+    user=$(i+3); ip=$(i+5); method=$(i+1); color=GREEN
+  } 
+  else if (type=="Failed") {
+    if ($(i+4)=="user") {user=$(i+5); ip=$(i+7)} else {user=$(i+3); ip=$(i+5)}
+    method=$(i+1); color=RED
+  } 
+  else if (type=="Invalid") {
+    user=$(i+2); ip=$(i+4); method=""; color=RED
+  }
+  else if (type=="Disconnected") {
+    user=$(i+4); ip=$(i+5); method=""; color=RED
+  }
+
+  # Map methods
+  if(method=="password") method="pass"
+  else if(method=="publickey") method="key"
+
+  # Print the whole line colored
+  printf "%s[%s] %s@%s %s%s\n", color, $3, user, ip, method, RESET
+}'

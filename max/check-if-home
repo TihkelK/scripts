@@ -26,14 +26,17 @@ fi
 while true; do
     now=$(date +%s)
     # IF DEVICE IS ONLINE
+
+    # --- SET VOLUME DOWN FOR SET TIME ---
+    current_hour=$(date +%H)
+    current_volume=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1 | tr -d '%')
+    if (( (current_hour >= 23 || current_hour < 10) && current_volume > 65 )); then
+        pactl set-sink-volume @DEFAULT_SINK@ 65%
+        espeak-ng -v en-gb-x-r "turning volume down"
+    fi
+
     if is_tv_on; then
         echo "[DEBUG] Device online, was_home=$was_home, offline_since=$offline_since"
-
-        # --- SET VOLUME DOWN FOR SET TIME ---
-        if [[ $(date +%H) -eq 11 && was_home -eq 1 ]]; then
-            pactl set-sink-volume @DEFAULT_SINK@ 65%
-            espeak-ng -v en-gb-x-r "turning volume down"
-        fi
 
         if [[ $was_home -eq 0 ]]; then
             current_hour=$(date +%H)
@@ -76,11 +79,11 @@ while true; do
                     pactl set-sink-volume @DEFAULT_SINK@ 100%
                     espeak-ng -v en-gb-x-r "welcome back!"
                     node ~/scripts/tuya-control/remote.js bulb-1 on
-                    node ~/scripts/tuya-control/remote.js bulb-1 mode scene
+                    node ~/scripts/tuya-control/remote.js bulb-1 mode scene purplebulb
                     node ~/scripts/tuya-control/remote.js bulb-2 on
-                    node ~/scripts/tuya-control/remote.js bulb-2 mode scene
+                    node ~/scripts/tuya-control/remote.js bulb-2 mode scene purplebulb
                     node ~/scripts/tuya-control/remote.js led on
-                    node ~/scripts/tuya-control/remote.js led mode scene
+                    node ~/scripts/tuya-control/remote.js led mode scene purpleled
                     node ~/scripts/tuya-control/remote.js plug on
                     adb shell input keyevent KEYCODE_WAKEUP
                     playerctl volume 0.8 -p spotify
