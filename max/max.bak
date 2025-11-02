@@ -11,7 +11,7 @@ LISTEN_MODE=0
 LAST_COMMAND_TIME=0
 CURRENT_VOLUME=""
 LISTEN_VOLUME=60%
-TIMEOUT=30
+TIMEOUT=15
 export VOSK_LOG_LEVEL=-1
 speak="espeak-ng -v en-gb-x-rp"
 
@@ -46,7 +46,7 @@ handle_command() {
     fi
 
     # --- WAKE WORDS ---
-    wake_words="(max|lex|rex|next)"
+    wake_words="(max|lex|rex)"
     if [[ "$cmd" =~ ^$wake_words\ .+ ]]; then
         LISTEN_MODE=1
         LAST_COMMAND_TIME=$(date +%s)
@@ -204,16 +204,6 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js led mode scene disco
             node ~/scripts/tuya-control/remote.js plug on
             ;;
-        *"white"*)
-            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on white mode...${RESET}" && $speak "okay"
-            node ~/scripts/tuya-control/remote.js bulb-1 on
-            node ~/scripts/tuya-control/remote.js bulb-1 mode white
-            node ~/scripts/tuya-control/remote.js bulb-2 on
-            node ~/scripts/tuya-control/remote.js bulb-2 mode white
-            node ~/scripts/tuya-control/remote.js led on
-            node ~/scripts/tuya-control/remote.js led mode color whiteled
-            node ~/scripts/tuya-control/remote.js plug on
-            ;;
 
         # --- OTHER ---
         *"shut down"*)
@@ -255,11 +245,11 @@ handle_command() {
         *"question"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Question received...${RESET}"
             echo "AI thinking..."
-            ai_answer=$(echo "answer with the least sentences possible: $cmd" | ollama run llama2)
+            ai_answer=$(echo "give short answer: $cmd" | ollama run llama2)
             echo -e "${GREEN}$ai_answer${RESET}" && $speak "$ai_answer"
             ;;
         *)
-            echo -e "${YELLOW}[$(date '+%H:%M:%S')] | $cmd - Not a command.${RESET}"
+            echo -e "${RED}[$(date '+%H:%M:%S')] | $cmd - Not a command.${RESET}"
             ;;
     esac
 }

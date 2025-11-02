@@ -1,0 +1,95 @@
+#!/bin/bash
+# scripts/ssh-auth
+# Näitab sshd autentimis- ja ühenduse sündmusi loogiliselt vormistatult.
+# Käivita: ./scripts/ssh-auth
+
+RED="\033[31m"
+GREEN="\033[32m"
+RESET="\033[0m"
+
+journalctl -u ssh.service \
+| grep --line-buffered -E 'Accepted|Failed|Invalid|Disconnected' \
+| awk -v RED="$RED" -v GREEN="$GREEN" -v RESET="$RESET" '
+{
+  # leidke sündmuse tüüp (Accepted/Failed/Invalid/Disconnected)
+  type=""
+  for(i=1;i<=NF;i++) {
+    if($i=="Accepted" || $i=="Failed" || $i=="Invalid" || $i=="Disconnected") {
+      type=$i
+      break
+    }
+  }
+
+  # algväärtustused
+  user=""; ip=""; port=""; method=""; host=""
+
+  # skannime sõna-põhiselt, otsime kasutajat, IP (IPv4), porti ja meetodit
+  for(j=1;j<=NF;j++) {
+    # IP (lihtne IPv4-muster)
+    if($j ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
+      ip=$j
+    }
+    # port
+    if($j=="port") {
+      if((j+1) <= NF) port=$(j+1)
+    }
+    # kasutaja - sagedased mustrid:
+    # "for <user>", "user <user>", "invalid user <user>"
+    if($j=="for") {
+      if((j+1) <= NF) user=$(j+1)
+    }
+    if($j=="user") {
+      if((j+1) <= NF) user=$(j+1)
+    }
+    if($j=="invalid" && (j+1)<=NF && $(j+1)=="user") {
+      if((j+2) <= NF) user=$(j+2)
+    }
+    # meetod (password/publickey)
+    if($j=="password" || $j=="publickey") {
+      method=$j
+    }
+  }
+
+  # mõnel real on kasutaja ja IP mitte-sama mustri põhjal – kui user tühi ja on sõna "authenticating" vms,
+  # proovime alternatiivselt leida "authenticating user <user>" mustrit
+  if(user=="" ) {
+    for(j=1;j<=NF;j++){
+      if($j=="authenticating" && (j+2)<=NF && $(j+1)=="user") user=$(j+2)
+    }
+  }
+
+  # fallback: kui ip tühi, üritame leida enne "port" olevat IPv4 välja (kui journalctl vorming lamestatakse)
+  if(ip=="" && port!="" ) {
+    # proovime NF-? asukohti (ainult kui need eksisteerivad)
+    for(k=1;k<=NF;k++){
+      if($(k) ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { ip=$(k); break }
+    }
+  }
+
+  # map methods
+  if(method=="password") method="pass"
+  else if(method=="publickey") method="key"
+
+  # värvi valik
+  color=RED
+  if(type=="Accepted") color=GREEN
+
+  # default-väärtused, et väljund oleks korrektselt vormistatud
+  if(user=="") user="-"
+  if(ip=="") ip="-"
+  host = ip
+  if(port!="") host = host ":" port
+
+  # kuupäev/kellaaeg (journalctl välja näidis: $1 kuu, $2 päev, $3 kellaaeg)
+  ts = $3
+
+  # trüki vorming: [HH:MM:SS] user@ip:port method
+  if(method=="") {
+    printf "%s[%s] %s@%s %s%s\n", color, ts, user, host, RESET, ""
+  } else {
+    printf "%s[%s] %s@%s %s%s\n", color, ts, user, host, method, RESET
+  }
+
+  # flush output kohe (realtime)
+  fflush()
+}'

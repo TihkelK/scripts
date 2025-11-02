@@ -17,12 +17,11 @@ const COLORS = {
   red: '000003e8000a',
   blue: '00f003e80064',
   magenta: '012d03e80064',
-//  orangeled: '000303e80091',
   orangeled: '000303e801ef',
-//  orangebulb: '001603e80096'
   orangebulb: '000f03e80334',
   blueled: '00b403e80093',
   bluebulb: '00f103e801f4',
+  whiteled: '0013029703e8',
 };
 
 const SCENES = {

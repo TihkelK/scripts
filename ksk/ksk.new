@@ -37,16 +37,8 @@ tmux select-layout -t "$SESSION" even-vertical
 # --- HORISONTAL SPLIT PANES ---
 # | FOR LINE2
 # PANE5
-cmd_pane5='watch -ctn1 "w | grep -v tmux | awk '\''NR>1 {printf \"%-7s %-6s %-14s %-6s %-6s %-0s\n\",\$1,\$2,\$3,\$4,\$5,\$8}'\''"'
-tmux split-window -h -t "$pane1" "$cmd_pane5"
+tmux split-window -h -t "$pane1" 'bash ~/scripts/ssh-auth'
 pane5=$(tmux display-message -p "#{pane_id}")
-# PANE11
-tmux split-window -h -t "$pane5" 'watch -ctn 10 bash ~/scripts/ksk/gmail && read'
-pane11=$(tmux display-message -p "#{pane_id}")
-# PANE10
-#cmd_pane10='watch -ctn1 "w | grep -v tmux | awk '\''NR>1 {printf \"%-7s %-6s %-14s %-6s %-6s %-0s\n\",\$1,\$2,\$3,\$4,\$5,\$8}'\''"'
-#tmux split-window -v -t "$pane5" "$cmd_pane10"
-#pane10=$(tmux display-message -p "#{pane_id}")
 # | FPR LINE3
 # PANE6
 tmux split-window -h -t "$pane2" 'tty-clock -cs -C 5'
@@ -78,7 +70,7 @@ pane7=$(tmux display-message -p "#{pane_id}")
 tmux split-window -h -t "$pane3" 'bash ~/scripts/ksk/s-player'
 pane8=$(tmux display-message -p "#{pane_id}")
 # PANE9
-tmux split-window -h -t "$pane8" 'bash ~/scripts/ksk/ssh-auth'
+tmux split-window -h -t "$pane8" 'watch -tn 10 bash ~/scripts/ksk/gmail && read'
 pane9=$(tmux display-message -p "#{pane_id}")
 
 # --- TMUX SETTINGS ---
@@ -94,18 +86,15 @@ tmux bind-key -T root q kill-session
 #tmux resize-pane -t "$pane0" -y 0
 #tmux resize-pane -t "$pane4" -y 0
 # HORISONTAL PANES
-tmux resize-pane -t "$pane1" -y 5
-tmux resize-pane -t "$pane1" -x 20
 tmux resize-pane -t "$pane2" -x 10
 tmux resize-pane -t "$pane2" -y 8
 tmux resize-pane -t "$pane3" -x 10
-#tmux resize-pane -t "$pane5" -x 35
-tmux resize-pane -t "$pane5" -y 4
-tmux resize-pane -t "$pane6" -y 6
-tmux resize-pane -t "$pane7" -x 20
-tmux resize-pane -t "$pane8" -y 3
-tmux resize-pane -t "$pane9" -x 20
-tmux resize-pane -t "$pane11" -x 20
+tmux resize-pane -t "$pane5" -y 5
+tmux resize-pane -t "$pane5" -x 10
+tmux resize-pane -t "$pane6" -y 5
+tmux resize-pane -t "$pane7" -x 30
+tmux resize-pane -t "$pane8" -y 2
+tmux resize-pane -t "$pane9" -x 30
 #tmux resize-pane -t "$pane1" -x 10
 #tmux resize-pane -t "$pane9" -y 5
 
@@ -136,9 +125,6 @@ tmux resize-pane -t "$pane11" -x 20
 ) &
 
 # --- POST SETUP ---
-#tmux kill-pane -t "$pane9"
-tmux set-option -t kiosk pane-border-style 'fg=black'
-tmux set-option -t kiosk pane-active-border-style 'fg=black'
 # FIX/RESPAWN C-PLAYING AND TTY-CLOCK
 (sleep 1;
 tmux respawn-pane -k -t "$SESSION"."$pane0"

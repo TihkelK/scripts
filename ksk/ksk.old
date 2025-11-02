@@ -5,25 +5,16 @@ if ! pgrep -f "bash ~/scripts/max/check-if-home" >/dev/null 2>&1; then
     bash ~/scripts/max/check-if-home >/dev/null 2>&1 &
 fi
 
-
 # --- KILL LAST AND CREATE NEW SESSION ---
 trap cleanup EXIT
 cleanup() { pkill -P $$; }
 tmux kill-server >/dev/null 2>&1
 sleep 0.2
 SESSION="kiosk"
-tmux new-session -d -s "$SESSION" 'bash ~/scripts/ksk/c-playing'
-
-# --- TMUX SETTINGS ---
-tmux set-option -t "$SESSION" status off
-tmux set-option -t "$SESSION" pane-border-style fg=default
-tmux set-option -t "$SESSION" pane-active-border-style fg=default
-tmux set-option -t "$SESSION" mouse on
-tmux set-option -g display-panes-time 1
-tmux bind-key -T root q kill-session
 
 # --- PANES ---
 # PANE0
+tmux new-session -d -s "$SESSION" 'bash ~/scripts/ksk/c-playing'
 pane0=$(tmux list-panes -t "$SESSION" -F "#{pane_id}" | head -n1)
 # PANE1
 tmux split-window -v -t "$pane0" "bash ~/scripts/max/max"
@@ -50,7 +41,7 @@ pane7=$(tmux display-message -p "#{pane_id}")
 tmux split-window -h -t "$pane7" 'cava'
 pane8=$(tmux display-message -p "#{pane_id}")
 # PANE9
-tmux split-window -h -t "$pane7" 'read -rp ""'
+tmux split-window -h -t "$pane7" "bash ~/scripts/ssh-auth"
 pane9=$(tmux display-message -p "#{pane_id}")
 # PANE10
 ssh_ip=$(echo $SSH_CLIENT | awk '{print $1}')
@@ -81,13 +72,21 @@ watch_cmd_pane12='watch -ctn1 "w | grep -v tmux | awk '\''NR>1 {printf \"%-7s %-
 tmux split-window -v -t "$pane2" "$watch_cmd_pane12"
 pane12=$(tmux display-message -p "#{pane_id}")
 
-# --- TMUX RESIZE ---
+# --- TMUX CONFIG ---
+# SETTINGS
+tmux set-option -t "$SESSION" status off
+tmux set-option -t "$SESSION" pane-border-style fg=default
+tmux set-option -t "$SESSION" pane-active-border-style fg=default
+tmux set-option -t "$SESSION" mouse on
+tmux set-option -g display-panes-time 1
+tmux bind-key -T root q kill-session
+# RESIZE
 tmux resize-pane -t "$pane0" -y 0
 tmux resize-pane -t "$pane2" -x 6
 tmux resize-pane -t "$pane1" -x 10
 tmux resize-pane -t "$pane9" -y 5
 
-# --- SHOW/HIDE WHEN SPOTIFY PLAYING ---
+# --- SHOW/HIDE/MODIFY PANES WHEN SPOTIFY PLAYING ---
 (
   hidden=false
   while true; do

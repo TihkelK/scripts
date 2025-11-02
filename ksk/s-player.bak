@@ -42,12 +42,13 @@ draw() {
   local mid_line=$((LINES / 2))
   local col_40=$(( (COLUMNS - 40) / 2 ))
 
-  # Progress bar centered
-  tput cup $mid_line $col_40
+  tput cup $((mid_line - 1)) $col_40
   progress_bar=$(print_progress_bar "$pos_int" "$length_int")
   time_pos=$(format_time "$pos_int")
   time_len=$(format_time "$length_int")
   echo "[$progress_bar] $time_pos / $time_len"
+
+  tput cup $((mid_line + 2)) $col_40
 }
 
 while true; do
@@ -74,7 +75,7 @@ while true; do
     continue
   fi
 
-  if [[ "$key" == $'\x1b' ]]; then
+if [[ "$key" == $'\x1b' ]]; then
     read -rsn2 key2
     case "$key2" in
         "[A") adjust_volume 0.05 ;;    # up arrow
@@ -82,15 +83,19 @@ while true; do
         "[D") playerctl previous -p spotify ;; # left arrow
         "[C") playerctl next -p spotify ;;     # right arrow
     esac
-  elif [[ "$key" == "0" || "$key" == " " || "$key" == $'\r' ]]; then
+elif [[ "$key" == "0" || "$key" == " " || "$key" == $'\r' ]]; then
     playerctl play-pause -p spotify
-  elif [[ "$key" == "q" ]]; then
+elif [[ "$key" == "q" ]]; then
     new_pos=$((pos_int - 5))
     (( new_pos < 0 )) && new_pos=0
     playerctl position "$new_pos" -p spotify
-  elif [[ "$key" == "e" ]]; then
+elif [[ "$key" == "e" ]]; then
     new_pos=$((pos_int + 5))
     (( new_pos > length_int )) && new_pos=$length_int
     playerctl position "$new_pos" -p spotify
-  fi
+fi
+
+
+
+
 done
