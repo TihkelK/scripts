@@ -7,7 +7,7 @@ font="small"
 
 prev_combined=""
 
-while true; do
+#while true; do
     artist=$(playerctl -p spotify metadata artist 2>/dev/null)
     title=$(playerctl -p spotify metadata title 2>/dev/null)
     status=$(playerctl -p spotify status 2>/dev/null)
@@ -44,5 +44,5 @@ while true; do
         prev_combined="$combined"
     fi
 
-    sleep 1
-done
+#    sleep 1
+#done

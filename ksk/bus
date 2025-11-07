@@ -2,8 +2,8 @@
 
 # --- CONFIG ---
 # COORDINATES
-zone_lat=59.42166370602925
-zone_lon=24.802889712250273
+zone_lat=59.420427229146824
+zone_lon=24.827042986783603
 
 kodu_lat=59.40670050698688
 kodu_lon=24.682783432066483
@@ -102,7 +102,7 @@ while true; do
     if [[ -n "$raw_lon" && -n "$raw_lat" ]]; then
         lon=$(awk "BEGIN {printf \"%.6f\", $raw_lon/1000000}")
         lat=$(awk "BEGIN {printf \"%.6f\", $raw_lat/1000000}")
-        node ~/mapscii/main.js -z 10 -g "${lat},${lon}" &
+        node ~/mapscii/main.js -z 8 -g "${lat},${lon}" &
         mapscii_pid=$!
         wait $mapscii_pid
     else

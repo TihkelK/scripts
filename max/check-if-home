@@ -32,7 +32,7 @@ while true; do
     current_volume=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1 | tr -d '%')
     if (( (current_hour >= 23 || current_hour < 10) && current_volume > 65 )); then
         pactl set-sink-volume @DEFAULT_SINK@ 65%
-        espeak-ng -v en-gb-x-r "turning volume down"
+        espeak-ng -v en-gb-x-r "it's 11, turning volume down"
     fi
 
     if is_tv_on; then

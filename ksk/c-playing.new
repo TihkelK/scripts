@@ -1,0 +1,56 @@
+#!/bin/bash
+
+purple=$'\e[35m'
+reset=$'\e[0m'
+
+fonts=("small" "mini" "tiny")
+
+prev_combined=""
+
+while true; do
+    artist=$(playerctl -p spotify metadata artist 2>/dev/null)
+    title=$(playerctl -p spotify metadata title 2>/dev/null)
+    status=$(playerctl -p spotify status 2>/dev/null)
+
+    if [[ "$status" == "Playing" ]]; then
+        combined="${title} - ${artist}"
+    else
+        combined=""
+    fi
+
+    if [[ "$combined" != "$prev_combined" ]]; then
+        clear
+        cols=$(tput cols)
+        rows=$(tput lines)
+
+        # Pick a font that fits
+        for f in "${fonts[@]}"; do
+            temp_output=$(figlet -f "$f" -w "$cols" "$combined")
+            max_width=$(echo "$temp_output" | awk '{if(length>max) max=length} END{print max}')
+            if (( max_width <= cols )); then
+                font="$f"
+                break
+            fi
+        done
+
+        output=$(figlet -f "$font" -w "$cols" "$combined")
+
+        # Truncate lines to terminal width
+        output=$(echo "$output" | cut -c1-$cols)
+
+        # Vertical centering
+        line_count=$(echo "$output" | wc -l)
+        middle_row=$(( (rows / 2) - (line_count / 2) ))
+        (( middle_row < 0 )) && middle_row=0
+        printf "\n%.0s" $(seq 1 "$middle_row")
+
+        # Print each line from column 0, colors applied
+        while IFS= read -r line; do
+            printf "%s%s%s\n" "$purple" "$line" "$reset"
+        done <<< "$output"
+
+        prev_combined="$combined"
+    fi
+
+    sleep 1
+done

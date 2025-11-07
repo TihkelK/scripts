@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+
+# --- PARAM FOR SHOWALL ---
+show_all=0
+if [[ "$1" == "-a" ]]; then
+    show_all=1
+fi
+
+# --- CALENDAR URLS ---
+mapfile -t ICAL_URLS < ~/scripts/auth/mycal.url
+
+# --- CALENDAR COLORS ---
+ICAL_COLORS=(
+"\033[90m"   # TAVA
+"\033[95m"   # MIA
+"\033[35m"   # MINA
+"\033[36m"   # MM
+"\033[93m"   # SYNNAD
+"\033[32m"   # RAHA
+"\033[33m"   #
+"\033[95m"   # WORK
+)
+RESET="\033[0m"
+
+# --- SETTINGS ---
+TMPDIR=$(mktemp -d)
+declare -A DAYS
+ORDERED_KEYS=()
+max_days=30
+if [ $show_all -eq 0 ]; then
+    max_days=3
+fi
+
+# --- FORMAT HEADERS ---
+for i in $(seq 0 $((max_days - 1))); do
+    date_str=$(date -d "+$i day" +%Y%m%d)
+    if [ $i -eq 0 ]; then
+        label="  Täna  "
+    elif [ $i -eq 1 ]; then
+        label=" Homme  "
+    elif [ $i -eq 2 ]; then
+        label="Ülehomme"
+    else
+        label=$(date -d "+$i day" +%d.%m)
+    fi
+    DAYS[$date_str]="$label"
+    ORDERED_KEYS+=("$date_str")
+done
+
+# --- MAIN FETCH & PARSE ---
+for i in "${!ICAL_URLS[@]}"; do
+    ICAL_URL="${ICAL_URLS[$i]}"
+    ICAL_URL="${ICAL_URL/#webcal:\/\//https://}"
+    TMPFILE="$TMPDIR/cal_$i.ics"
+    curl -s "$ICAL_URL" -o "$TMPFILE" || continue
+
+    awk -v idx="$i" -v maxdays="$max_days" '
+    function add_days(ymd, n) {
+        cmd = "date -d \"" ymd " +" n " day\" +%Y%m%d"
+        cmd | getline out
+        close(cmd)
+        return out
+    }
+
+    BEGIN {
+        in_event = 0
+        today = strftime("%Y%m%d")
+        future = strftime("%Y%m%d", systime() + maxdays * 86400)
+        status=""
+        exdates=""
+    }
+
+    /^BEGIN:VEVENT/ {
+        in_event = 1
+        summary=""; dtstart=""; dtend=""; rrule=""; status=""; exdates=""
+    }
+
+    /^END:VEVENT/ {
+        if (!in_event) next
+        # Skip cancelled events
+        if (status == "CANCELLED") { in_event=0; next }
+
+        start = substr(dtstart,1,8)
+        end = (dtend=="" ? start : substr(dtend,1,8))
+        if (end < start) end=start
+
+        freq=""; interval=1
+        if (rrule ~ "FREQ=") {
+            n = split(rrule, parts, ";")
+            for (j in parts) {
+                if (parts[j] ~ /^FREQ=/) freq = substr(parts[j],6)
+                else if (parts[j] ~ /^INTERVAL=/) interval = substr(parts[j],10)
+            }
+        }
+
+        # Prepare EXDATE list
+        n_ex = split(exdates, exa, ",")
+        delete exhash
+        for(k=1;k<=n_ex;k++) exhash[exa[k]]=1
+
+        # --- Non-recurring ---
+        if (freq=="") {
+            if (!(start in exhash) && start>=today && start<=future) print idx "\t" start "\t" summary
+            cur=start
+            while(cur<end) {
+                cur = add_days(cur,1)
+                if (!(cur in exhash) && cur>=today && cur<=future) print idx "\t" cur "\t" summary
+            }
+        }
+
+        # --- Yearly ---
+        else if (freq=="YEARLY") {
+            base_md = substr(start,5,4)
+            for(y=0;y<=1;y++){
+                ystr = strftime("%Y", systime() + y*31536000)
+                recur = ystr base_md
+                if (!(recur in exhash) && recur>=today && recur<=future) print idx "\t" recur "\t" summary
+            }
+        }
+
+        # --- Weekly ---
+        else if (freq=="WEEKLY") {
+            cur=start
+            while(cur<=future) {
+                if (!(cur in exhash) && cur>=today) print idx "\t" cur "\t" summary
+                cur = add_days(cur, 7*interval)
+            }
+        }
+
+        in_event=0
+        status=""
+        exdates=""
+    }
+
+    /^SUMMARY:/ && in_event { sub(/^SUMMARY:/,""); summary=$0 }
+    /^DTSTART/ && in_event { sub(/^DTSTART[^:]*:/,""); dtstart=$0 }
+    /^DTEND/ && in_event { sub(/^DTEND[^:]*:/,""); dtend=$0 }
+    /^RRULE/ && in_event { sub(/^RRULE:/,""); rrule=$0 }
+    /^STATUS:/ && in_event { sub(/^STATUS:/,""); status=$0 }
+    /^EXDATE/ && in_event {
+        gsub(/EXDATE[^:]*:/,"")
+        gsub(/:/,",")
+        exdates=$0
+    }
+    ' "$TMPFILE"
+done | sort -k2,2n | awk '!seen[$2"\t"$3]++' > "$TMPDIR/events.txt"
+
+# --- PRINT RESULTS ---
+day_counter=0
+for day in "${ORDERED_KEYS[@]}"; do
+    header="${DAYS[$day]}"
+    events=$(awk -F'\t' -v d="$day" '$2 == d {print}' "$TMPDIR/events.txt")
+
+    if [ $day_counter -lt 3 ]; then
+        echo "──┬────────── $header ────────────"
+        if [ -n "$events" ]; then
+            echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
+                COLOR="${ICAL_COLORS[$color_idx]}"
+                echo -e "${COLOR}  │ ${summary}${RESET}"
+            done
+        fi
+    else
+        if [ $show_all -eq 0 ]; then break; fi
+        if [ $day_counter -eq 3 ]; then echo; echo; fi
+        echo "──┬────────── $header ────────────"
+        if [ -n "$events" ]; then
+            echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
+                COLOR="${ICAL_COLORS[$color_idx]}"
+                echo -e "${COLOR}  │ ${summary}${RESET}"
+            done
+        fi
+    fi
+    ((day_counter++))
+done
+
+rm -rf "$TMPDIR"
