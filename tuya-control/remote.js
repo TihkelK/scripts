@@ -10,7 +10,8 @@ const DEVICES = {
   'bulb-1': { id: 'bf6e935014ed7bc0fbqpjm', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
   'bulb-2': { id: 'bf6b60b62e8c124a3f0zxa', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
   'led': { id: 'bf5d15b4790c0d313aktzn', dps: 'switch_led', modeDps: 'work_mode', colorDps: 'colour_data' },
-  'plug': { id: 'bf432551fd7c1c8a7293kp', dps: 'switch_1' }
+  'pluh-1': { id: 'bf432551fd7c1c8a7293kp', dps: 'switch_1' },
+  'pluh-2': { id: 'bf0d243cd14f3e3917jygi', dps: 'switch_1' },
 };
 
 const COLORS = {

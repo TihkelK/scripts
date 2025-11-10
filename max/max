@@ -142,14 +142,14 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode scene purpleled
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
         *"lights off"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning off lights...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js bulb-1 off
             node ~/scripts/tuya-control/remote.js bulb-2 off
             node ~/scripts/tuya-control/remote.js led off
-            node ~/scripts/tuya-control/remote.js plug off
+            node ~/scripts/tuya-control/remote.js pluh-1 off
             ;;
         *"red"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on red mode...${RESET}" && $speak "okay"
@@ -159,7 +159,8 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode color red
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode color red
-            node ~/scripts/tuya-control/remote.js plug off
+            node ~/scripts/tuya-control/remote.js pluh-1 off
+            node ~/scripts/tuya-control/remote.js pluh-2 off
             ;;
         *"movie"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on movie mode...${RESET}" && $speak "okay"
@@ -169,7 +170,8 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 on
             node ~/scripts/tuya-control/remote.js bulb-2 mode color magenta
             node ~/scripts/tuya-control/remote.js led off
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
+            node ~/scripts/tuya-control/remote.js pluh-2 on
             ;;
         *"orange"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on orange mode...${RESET}" && $speak "okay"
@@ -179,7 +181,7 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode color orangebulb
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode color orangeled
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
         *"ocean"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on ocean mode...${RESET}" && $speak "okay"
@@ -189,7 +191,7 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode color bluebulb
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode color blueled
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
         *"hardcore"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on hardcore mode...${RESET}" && $speak "okay"
@@ -199,7 +201,7 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode scene hardcore
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode scene hardcore
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
         *"disco"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on disco mode...${RESET}" && $speak "okay"
@@ -209,7 +211,7 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode scene disco
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode scene disco
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
         *"white"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on white mode...${RESET}" && $speak "okay"
@@ -219,20 +221,21 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode white
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode color whiteled
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
 
         # --- OTHER ---
         *"shut down"*)
             echo -e "${GREEN}[$(timestamp)] | Shutting down...${RESET}" && $speak "shutting down"
-            node ~/scripts/tuya-control/remote.js led off
-            node ~/scripts/tuya-control/remote.js plug off
-            node ~/scripts/tuya-control/remote.js bulb-2 off
             node ~/scripts/tuya-control/remote.js bulb-1 off
+            node ~/scripts/tuya-control/remote.js bulb-2 off
+            node ~/scripts/tuya-control/remote.js led off
+            node ~/scripts/tuya-control/remote.js pluh-1 off
+            node ~/scripts/tuya-control/remote.js pluh-2 off
+            node ~/scripts/tuya-control/remote.js pluh-2 on
             adb connect $TV
             playerctl stop -p spotify
             nohup bash -c "sleep 3 && adb shell input keyevent KEYCODE_SLEEP" &
-            #nohup bash -c "sleep 2 && swaylock -f && hyprctl dispatch dpms off HDMI-A-1" &
             adb shell input text "q"
             ;;
         *"wake up")
@@ -252,14 +255,15 @@ handle_command() {
             node ~/scripts/tuya-control/remote.js bulb-2 mode scene purplebulb
             node ~/scripts/tuya-control/remote.js led on
             node ~/scripts/tuya-control/remote.js led mode scene purpleled
-            node ~/scripts/tuya-control/remote.js plug on
+            node ~/scripts/tuya-control/remote.js pluh-1 on
             adb connect $TV
             playerctl play -p spotify
             playerctl next -p spotify
             adb shell input keyevent KEYCODE_WAKEUP
             hyprctl dispatch dpms on HDMI-A-1
             ;;
-        "who"*|"what"*|"where"*|"when"*|"why"*|"how"*|"do"*|"does"*|"did"*|"is"*|"are"*|"am"*|"was"*|"were"*|"can"*|"could"*|"would"*|"will"*|"shall"*|"should"*|"has"*|"have"*|"had"*|"may"*|"might"*|"must"*)
+        #"who"*|"what"*|"where"*|"when"*|"why"*|"how"*|"do"*|"does"*|"did"*|"is"*|"are"*|"am"*|"was"*|"were"*|"can"*|"could"*|"would"*|"will"*|"shall"*|"should"*|"has"*|"have"*|"had"*|"may"*|"might"*|"must"*)
+        "question"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Question received...${RESET}"
             echo "AI thinking..."
             ai_answer=$(echo "answer with the least sentences possible: $cmd" | ollama run llama2)
