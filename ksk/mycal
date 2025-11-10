@@ -17,7 +17,7 @@ ICAL_COLORS=(
 "\033[36m"   # MM
 "\033[93m"   # SYNNAD
 "\033[32m"   # RAHA
-"\033[33m"   #
+"\033[31m"   # MAKSA
 "\033[95m"   # WORK
 )
 RESET="\033[0m"
@@ -47,6 +47,7 @@ for i in $(seq 0 $((max_days - 1))); do
     ORDERED_KEYS+=("$date_str")
 done
 
+# --- PROCESS CAL FILES ---
 for i in "${!ICAL_URLS[@]}"; do
     ICAL_URL="${ICAL_URLS[$i]}"
     ICAL_URL="${ICAL_URL/#webcal:\/\//https://}"
@@ -54,25 +55,45 @@ for i in "${!ICAL_URLS[@]}"; do
     curl -s "$ICAL_URL" -o "$TMPFILE" || continue
 
     awk -v idx="$i" -v maxdays="$max_days" '
-BEGIN { in_event=0; today=strftime("%Y%m%d") }
-/^BEGIN:VEVENT/ { in_event=1; summary=""; dtstart=""; dtend=""; rrule=""; }
+BEGIN {
+    in_event=0
+    today=strftime("%Y%m%d")
+}
+/^BEGIN:VEVENT/ {
+    in_event=1
+    summary=""
+    dtstart=""
+    dtend=""
+    rrule=""
+    status=""
+}
 /^END:VEVENT/ {
-    if (in_event && dtstart != "" && summary != "") {
-        gsub(/\r/, "", dtstart); gsub(/\r/, "", dtend); gsub(/\r/, "", rrule)
+    if (in_event && dtstart != "" && summary != "" && status != "CANCELLED") {
+        gsub(/\r/, "", dtstart)
+        gsub(/\r/, "", dtend)
+        gsub(/\r/, "", rrule)
+
         start=substr(dtstart,1,8)
         end=(dtend != "" ? substr(dtend,1,8) : start)
         if (end < start) end=start
 
-        # Only print events from today onwards
+# Subtract one day from DTEND (since it is exclusive)
+cmd = "date -d \"" end " -1 day\" +%Y%m%d"
+cmd | getline end_adj
+close(cmd)
+if (end_adj < start) end_adj = start   # <-- add this line
+
+
         cur=start
-        while (cur <= end) {
-            if (cur >= today) print idx "\t" cur "\t" summary
-            cmd="date -d \"" cur " +1 day\" +%Y%m%d"
+        while (cur <= end_adj) {
+            if (cur >= today)
+                print idx "\t" cur "\t" summary
+            cmd = "date -d \"" cur " +1 day\" +%Y%m%d"
             cmd | getline cur
             close(cmd)
         }
 
-        # --- YEARLY RECURRENCE ---
+        # yearly recurrence
         if (rrule ~ /FREQ=YEARLY/) {
             month_day=substr(start,5,4)
             year=strftime("%Y")
@@ -82,9 +103,9 @@ BEGIN { in_event=0; today=strftime("%Y%m%d") }
             }
         }
 
-        # --- WEEKLY RECURRENCE ---
+        # weekly recurrence
         if (rrule ~ /FREQ=WEEKLY/) {
-            base_date = start
+            base_date=start
             for (w=0; w<maxdays+7; w++) {
                 cmd = "date -d \"" base_date " +" (w*7) " days\" +%Y%m%d"
                 cmd | getline recur
@@ -101,9 +122,11 @@ BEGIN { in_event=0; today=strftime("%Y%m%d") }
 /^DTSTART/ && in_event { sub(/^DTSTART[^:]*:/,""); dtstart=$0 }
 /^DTEND/ && in_event { sub(/^DTEND[^:]*:/,""); dtend=$0 }
 /^RRULE/ && in_event { sub(/^RRULE:/,""); rrule=$0 }
+/^STATUS:/ && in_event { sub(/^STATUS:/,""); status=$0 }
 ' "$TMPFILE"
 done | sort -k2,2n | awk '!seen[$2"\t"$3]++' > "$TMPDIR/events.txt"
 
+# --- DISPLAY ---
 day_counter=0
 for day in "${ORDERED_KEYS[@]}"; do
     header="${DAYS[$day]}"

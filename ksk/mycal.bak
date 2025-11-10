@@ -17,7 +17,7 @@ ICAL_COLORS=(
 "\033[36m"   # MM
 "\033[93m"   # SYNNAD
 "\033[32m"   # RAHA
-"\033[33m"   #
+"\033[31m"   # MAKSA
 "\033[95m"   # WORK
 )
 RESET="\033[0m"
@@ -65,12 +65,14 @@ BEGIN { in_event=0; today=strftime("%Y%m%d") }
 
         # Only print events from today onwards
         cur=start
-        while (cur <= end) {
-            if (cur >= today) print idx "\t" cur "\t" summary
-            cmd="date -d \"" cur " +1 day\" +%Y%m%d"
-            cmd | getline cur
-            close(cmd)
-        }
+while (cur <= end) {
+    if (cur >= today)
+        print idx "\t" cur "\t" summary
+
+    cmd = "date -d \"" cur " +1 day\" +%Y%m%d"
+    cmd | getline cur
+    close(cmd)
+}
 
         # --- YEARLY RECURRENCE ---
         if (rrule ~ /FREQ=YEARLY/) {

@@ -17,7 +17,7 @@ ICAL_COLORS=(
 "\033[36m"   # MM
 "\033[93m"   # SYNNAD
 "\033[32m"   # RAHA
-"\033[33m"   #
+"\033[31m"   # MAKSA
 "\033[95m"   # WORK
 )
 RESET="\033[0m"
@@ -31,7 +31,7 @@ if [ $show_all -eq 0 ]; then
     max_days=3
 fi
 
-# --- FORMAT HEADERS ---
+# --- FORMATTING ---
 for i in $(seq 0 $((max_days - 1))); do
     date_str=$(date -d "+$i day" +%Y%m%d)
     if [ $i -eq 0 ]; then
@@ -47,7 +47,6 @@ for i in $(seq 0 $((max_days - 1))); do
     ORDERED_KEYS+=("$date_str")
 done
 
-# --- MAIN FETCH & PARSE ---
 for i in "${!ICAL_URLS[@]}"; do
     ICAL_URL="${ICAL_URLS[$i]}"
     ICAL_URL="${ICAL_URL/#webcal:\/\//https://}"
@@ -55,101 +54,67 @@ for i in "${!ICAL_URLS[@]}"; do
     curl -s "$ICAL_URL" -o "$TMPFILE" || continue
 
     awk -v idx="$i" -v maxdays="$max_days" '
-    function add_days(ymd, n) {
-        cmd = "date -d \"" ymd " +" n " day\" +%Y%m%d"
-        cmd | getline out
-        close(cmd)
-        return out
-    }
-
-    BEGIN {
-        in_event = 0
-        today = strftime("%Y%m%d")
-        future = strftime("%Y%m%d", systime() + maxdays * 86400)
-        status=""
-        exdates=""
-    }
-
-    /^BEGIN:VEVENT/ {
-        in_event = 1
-        summary=""; dtstart=""; dtend=""; rrule=""; status=""; exdates=""
-    }
-
-    /^END:VEVENT/ {
-        if (!in_event) next
-        # Skip cancelled events
-        if (status == "CANCELLED") { in_event=0; next }
-
-        start = substr(dtstart,1,8)
-        end = (dtend=="" ? start : substr(dtend,1,8))
+BEGIN { in_event=0; today=strftime("%Y%m%d") }
+/^BEGIN:VEVENT/ { in_event=1; summary=""; dtstart=""; dtend=""; rrule="" }
+/^END:VEVENT/ {
+    if (in_event && dtstart != "" && summary != "") {
+        gsub(/\r/, "", dtstart)
+        gsub(/\r/, "", dtend)
+        gsub(/\r/, "", rrule)
+        start=substr(dtstart,1,8)
+        end=(dtend != "" ? substr(dtend,1,8) : start)
         if (end < start) end=start
 
-        freq=""; interval=1
-        if (rrule ~ "FREQ=") {
-            n = split(rrule, parts, ";")
-            for (j in parts) {
-                if (parts[j] ~ /^FREQ=/) freq = substr(parts[j],6)
-                else if (parts[j] ~ /^INTERVAL=/) interval = substr(parts[j],10)
+        # Subtract one day from DTEND (since it is exclusive)
+        cmd = "date -d \"" end " -1 day\" +%Y%m%d"
+        cmd | getline end_adj
+        close(cmd)
+
+        # Now iterate from start to end_adj
+        cur=start
+        while (cur <= end_adj) {
+            if (cur >= today) print idx "\t" cur "\t" summary
+            cmd = "date -d \"" cur " +1 day\" +%Y%m%d"
+            cmd | getline cur
+            close(cmd)
+        }
+
+        # YEARLY recurrence
+        if (rrule ~ /FREQ=YEARLY/) {
+            month_day=substr(start,5,4)
+            year=strftime("%Y")
+            cur_year_event=year month_day
+            if (cur_year_event >= today && cur_year_event <= strftime("%Y%m%d", systime() + (maxdays*86400))) {
+                print idx "\t" cur_year_event "\t" summary
             }
         }
 
-        # Prepare EXDATE list
-        n_ex = split(exdates, exa, ",")
-        delete exhash
-        for(k=1;k<=n_ex;k++) exhash[exa[k]]=1
-
-        # --- Non-recurring ---
-        if (freq=="") {
-            if (!(start in exhash) && start>=today && start<=future) print idx "\t" start "\t" summary
-            cur=start
-            while(cur<end) {
-                cur = add_days(cur,1)
-                if (!(cur in exhash) && cur>=today && cur<=future) print idx "\t" cur "\t" summary
+        # WEEKLY recurrence
+        if (rrule ~ /FREQ=WEEKLY/) {
+            base_date=start
+            for (w=0; w<maxdays+7; w++) {
+                cmd = "date -d \"" base_date " +" (w*7) " days\" +%Y%m%d"
+                cmd | getline recur
+                close(cmd)
+                if (recur >= today && recur <= strftime("%Y%m%d", systime() + (maxdays*86400))) {
+                    print idx "\t" recur "\t" summary
+                }
             }
         }
-
-        # --- Yearly ---
-        else if (freq=="YEARLY") {
-            base_md = substr(start,5,4)
-            for(y=0;y<=1;y++){
-                ystr = strftime("%Y", systime() + y*31536000)
-                recur = ystr base_md
-                if (!(recur in exhash) && recur>=today && recur<=future) print idx "\t" recur "\t" summary
-            }
-        }
-
-        # --- Weekly ---
-        else if (freq=="WEEKLY") {
-            cur=start
-            while(cur<=future) {
-                if (!(cur in exhash) && cur>=today) print idx "\t" cur "\t" summary
-                cur = add_days(cur, 7*interval)
-            }
-        }
-
-        in_event=0
-        status=""
-        exdates=""
     }
-
-    /^SUMMARY:/ && in_event { sub(/^SUMMARY:/,""); summary=$0 }
-    /^DTSTART/ && in_event { sub(/^DTSTART[^:]*:/,""); dtstart=$0 }
-    /^DTEND/ && in_event { sub(/^DTEND[^:]*:/,""); dtend=$0 }
-    /^RRULE/ && in_event { sub(/^RRULE:/,""); rrule=$0 }
-    /^STATUS:/ && in_event { sub(/^STATUS:/,""); status=$0 }
-    /^EXDATE/ && in_event {
-        gsub(/EXDATE[^:]*:/,"")
-        gsub(/:/,",")
-        exdates=$0
-    }
-    ' "$TMPFILE"
+    in_event=0
+}
+/^SUMMARY:/ && in_event { sub(/^SUMMARY:/,""); summary=$0 }
+/^DTSTART/ && in_event { sub(/^DTSTART[^:]*:/,""); dtstart=$0 }
+/^DTEND/ && in_event { sub(/^DTEND[^:]*:/,""); dtend=$0 }
+/^RRULE/ && in_event { sub(/^RRULE:/,""); rrule=$0 }
+' "$TMPFILE"
 done | sort -k2,2n | awk '!seen[$2"\t"$3]++' > "$TMPDIR/events.txt"
 
-# --- PRINT RESULTS ---
 day_counter=0
 for day in "${ORDERED_KEYS[@]}"; do
     header="${DAYS[$day]}"
-    events=$(awk -F'\t' -v d="$day" '$2 == d {print}' "$TMPDIR/events.txt")
+    events=$(awk -F'\t' -v d="$day" '$2 ~ "^" d {print}' "$TMPDIR/events.txt")
 
     if [ $day_counter -lt 3 ]; then
         echo "──┬────────── $header ────────────"
@@ -163,12 +128,10 @@ for day in "${ORDERED_KEYS[@]}"; do
         if [ $show_all -eq 0 ]; then break; fi
         if [ $day_counter -eq 3 ]; then echo; echo; fi
         echo "──┬────────── $header ────────────"
-        if [ -n "$events" ]; then
-            echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
-                COLOR="${ICAL_COLORS[$color_idx]}"
-                echo -e "${COLOR}  │ ${summary}${RESET}"
-            done
-        fi
+        echo "$events" | while IFS=$'\t' read -r color_idx rawdate summary; do
+            COLOR="${ICAL_COLORS[$color_idx]}"
+            echo -e "${COLOR}  │ ${summary}${RESET}"
+        done
     fi
     ((day_counter++))
 done

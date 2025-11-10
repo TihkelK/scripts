@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Spotify search & play via playerctl
+
+set -euo pipefail
+
+# Spotify API credentials
+CLIENT_ID="$(cat ~/scripts/auth/spotify-api.id)"
+CLIENT_SECRET="$(cat ~/scripts/auth/spotify-api.secret)"
+
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 \"song name\""
+  exit 1
+fi
+
+query="$*"
+
+# Get access token
+TOKEN=$(curl -s -X POST "https://accounts.spotify.com/api/token" \
+  -H "Authorization: Basic $(echo -n "$CLIENT_ID:$CLIENT_SECRET" | base64 -w 0)" \
+  -d grant_type=client_credentials | jq -r '.access_token')
+
+# Search for track
+TRACK_JSON=$(curl -s -G "https://api.spotify.com/v1/search" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "q=$query" \
+  --data-urlencode "type=track" \
+  --data-urlencode "limit=1")
+
+URI=$(echo "$TRACK_JSON" | jq -r '.tracks.items[0].uri // empty')
+NAME=$(echo "$TRACK_JSON" | jq -r '.tracks.items[0].name // empty')
+ARTIST=$(echo "$TRACK_JSON" | jq -r '.tracks.items[0].artists[0].name // empty')
+
+if [[ -z "$URI" ]]; then
+  echo "Song not found: $query"
+  exit 1
+fi
+
+echo "Playing \"$NAME\" by $ARTIST"
+
+# Play in Spotify via playerctl
+playerctl --player=spotify open "$URI"

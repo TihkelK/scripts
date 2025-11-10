@@ -120,6 +120,13 @@ handle_command() {
             playerctl volume 0.8 -p spotify
             CURRENT_VOLUME=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1)
             ;;
+        "spotify"*)
+            cmd="${cmd#* }"
+echo $cmd
+            s_query_result=$(bash ~/scripts/max/s-query "$cmd")
+echo $s_query_result
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Playing: $s_query_result on spotify...${RESET}" && $speak "okay"
+            ;;
 
         # --- TV ---
         *"wake up tv"*)
