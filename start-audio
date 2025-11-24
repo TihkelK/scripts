@@ -6,7 +6,7 @@ systemctl --user restart pipewire pipewire-pulse
 
 # Wait until at least 4 sinks appear (adjust number if you expect more/less)
 echo "Waiting for audio devices..."
-for i in {1..10}; do
+for i in {1..5}; do
     sinks=$(pactl list short sinks | awk '{print $2}')
     count=$(echo "$sinks" | wc -l)
     if [ "$count" -ge 4 ]; then
@@ -29,7 +29,7 @@ if pactl list short sinks | grep -q '^.*\scombined\s'; then
 fi
 
 # Load fresh combined sink
-pactl load-module module-combine-sink sink_name=combined slaves=$slaves
+pactl load-module module-combine-sink sink_name=combined slaves=$slaves djust_latency=yes resample_method=soxr-vhq
 pactl set-default-sink combined
 
 echo "Combined sink created with: $slaves"

@@ -1,47 +1,39 @@
 # SCRIPTS
-
-## Usage:
+### Usage:
 * most scripts depend on the "/scripts" folder being located at ~/
 
-## Contents:
+### Contents:
 * MAX-THE-LLM : Locally hosted LLM with built in commands.
 * KIOSK : Tmux based TV kiosk showing every day things like time, calendar, spotify etc.
 
-## Requirements
-### APT install:
+## INSTALL
+### Requirements
+- ### apt install
 ```
-nodejs
-npm
-playerctl
-tty-clock
-pipx
-pipewire-pulse
-pulseaudio-utils
-espeak-ng
-cava
+nodejs npm playerctl tty-clock pipx pipewire-pulse pulseaudio-utils espeak-ng cava tmux
 
-wireplumber
-pavucontrol
-libxml2-utils
-libportaudio2
-libportaudiocpp0
-portaudio19-dev
+wireplumber pavucontrol libxml2-utils libportaudio2 libportaudiocpp0 portaudio19-dev
 ```
-### PIP install --break-system-packages
+- ### pip install [package] --break-system-packages
 ```
-sounddevice
-vosk
+sounddevice vosk
 ```
 
-# mapscii setup
+- ### mapscii setup
 ```
 git clone https://github.com/rastapasta/mapscii.git
 cd mapscii
-nmp install
+npm install
 ```
 Also, for some reason ~/.mapscii/* and ~/.cache/mapscii-nodejs/* must be copied from the previous machine for it to work
 
-# MAX setup:
+- ### pipewire setup
 ```
 systemctl --user enable --now pipewire pipewire-pulse
+```
+
+- ### journalctl permission commands:
+```
+sudo usermod -aG systemd-journal $USER
+newgrp systemd-journal
 ```
