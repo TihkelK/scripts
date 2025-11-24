@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+import { spawn } from "child_process";
+
+// Configuration
+const PULSE_SOURCE = "spotify"; // Replace with your Spotify sink name if needed
+const BASS_THRESHOLD = 0.1; // Adjust based on your audio volume
+
+// Spawn ffmpeg to grab stereo audio from PulseAudio
+const ffmpeg = spawn("ffmpeg", [
+  "-f", "pulse",
+  "-i", PULSE_SOURCE,
+  "-ac", "2",
+  "-f", "f32le",
+  "-"
+]);
+
+ffmpeg.stdout.on("data", chunk => {
+  // Convert raw audio chunk to float samples
+  const floatSamples = new Float32Array(chunk.buffer, chunk.byteOffset, chunk.byteLength / 4);
+  
+  // Simple bass detection: sum absolute values of low-frequency samples
+  let bass = 0;
+  const skip = 50; // check every 50 samples to reduce CPU
+  for (let i = 0; i < floatSamples.length; i += skip) {
+    bass += Math.abs(floatSamples[i]);
+  }
+  bass /= floatSamples.length / skip;
+
+  if (bass > BASS_THRESHOLD) {
+    console.log(`🎶 Bass hit! Strength: ${bass.toFixed(3)}`);
+  }
+});
+
+ffmpeg.stderr.on("data", data => {}); // ignore logs
+ffmpeg.on("close", () => console.log("🛑 FFmpeg closed"));
