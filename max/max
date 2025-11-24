@@ -19,19 +19,19 @@ speak="espeak-ng -v en-gb-x-rp"
 TV="192.168.1.4"
 WAKE_UP_TV="
 adb connect $TV
-hyprctl dispatch dpms on HDMI-A-1
 adb shell input keyevent KEYCODE_WAKEUP
-adb shell input text \"q\"
-adb shell input keyevent KEYCODE_HOME
-adb shell input keyevent KEYCODE_HOME
-sleep 2
-adb shell input keyevent KEYCODE_DPAD_CENTER
-adb shell input text \"q\"
-adb shell input keyevent KEYCODE_ENTER
-adb shell input text \"ssh%stihkel@192.168.1.2\"
-adb shell input keyevent KEYCODE_ENTER
-adb shell input text \"ksk\"
-adb shell input keyevent KEYCODE_ENTER
+#hyprctl dispatch dpms on HDMI-A-1
+#adb shell input text \"q\"
+#adb shell input keyevent KEYCODE_HOME
+#adb shell input keyevent KEYCODE_HOME
+#sleep 2
+#adb shell input keyevent KEYCODE_DPAD_CENTER
+#adb shell input text \"q\"
+#adb shell input keyevent KEYCODE_ENTER
+#adb shell input text \"ssh%stihkel@192.168.1.2\"
+#adb shell input keyevent KEYCODE_ENTER
+#adb shell input text \"ksk\"
+#adb shell input keyevent KEYCODE_ENTER
 "
 
 # --- JARVIS ---
