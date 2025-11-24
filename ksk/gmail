@@ -10,7 +10,7 @@ ATOM_FEED="https://mail.google.com/mail/feed/atom"
 # Fetch the Atom XML feed
 XML=$(curl -su "$EMAIL:$APP_PASSWORD" "$ATOM_FEED" 2>/dev/null)
 
-echo "Unread Emails:"
+echo "────────── Unread Emails ──────────"
 
 # Parse and print entries (subject + author/email)
 echo "$XML" | xmllint --format - 2>/dev/null | awk '
@@ -24,6 +24,10 @@ echo "$XML" | xmllint --format - 2>/dev/null | awk '
       gsub(/<\/?title>/, "", $0)
       title = trim($0)
     }
+    if ($0 ~ /<summary>/) {
+      gsub(/<\/?summary>/, "", $0)
+      summary = trim($0)
+    }
     if ($0 ~ /<name>/) {
       gsub(/<\/?name>/, "", $0)
       name = trim($0)
@@ -33,10 +37,12 @@ echo "$XML" | xmllint --format - 2>/dev/null | awk '
       email = trim($0)
     }
     if ($0 ~ /<\/entry>/) {
-      print "-----------------------------"
-      print name " <" email ">"
-      print title
-      name=""; email=""; title=""
+      print "\033[1;37m"name"\033[0m" " <" "\033[90m"email"\033[0m" ">"
+      print "\033[3m"title"\033[0m"
+      if (summary != "")
+        print "\033[2;37m"summary"\033[0m"
+      name=""; email=""; title=""; summary=""
+      print "- - - - - - - - - - - - - - - - - -"
     }
   }
 '

@@ -5,45 +5,46 @@ if ! pgrep -f "bash ~/scripts/max/check-if-home" >/dev/null 2>&1; then
     bash ~/scripts/max/check-if-home >/dev/null 2>&1 &
 fi
 
-# --- KILL LAST AND CREATE NEW SESSION ---
+# --- KILL LAST TMUX SERVER ---
 trap cleanup EXIT
 cleanup() { pkill -P $$; }
 tmux kill-server >/dev/null 2>&1
 sleep 0.2
-SESSION="kiosk"
 
-# --- VERTICAL LINES ---
-# LINE0
-tmux new-session -d -s "$SESSION" 'bash ~/scripts/ksk/c-playing'
+# --- SESSION 1: KIOSK ---
+SESSION="kiosk"
+tmux new-session -d -s "$SESSION" 'watch -ctn1 bash scripts/ksk/c-playing'
 pane0=$(tmux list-panes -t "$SESSION" -F "#{pane_id}" | head -n1)
-# LINE1
+
 tmux select-layout -t "$SESSION" even-vertical >/dev/null 2>&1
-tmux split-window -v -t "$pane0" 'bash ~/scripts/ksk/mycal'
+tmux split-window -v -t "$pane0" 'watch -ctn120 bash ~/scripts/ksk/mycal'
 pane1=$(tmux display-message -p "#{pane_id}")
-# LINE2
+
 tmux select-layout -t "$SESSION" even-vertical >/dev/null 2>&1
-tmux split-window -v -t "$pane1" 'bash ~/scripts/max/max'
+tmux split-window -v -t "$pane1" 'bash ~/scripts/ksk/ssh-auth'
 pane2=$(tmux display-message -p "#{pane_id}")
-# LINE3
+
 tmux select-layout -t "$SESSION" even-vertical >/dev/null 2>&1
 tmux split-window -v -t "$pane2" 'bash ~/scripts/ksk/timers'
 pane3=$(tmux display-message -p "#{pane_id}")
-# LINE4
+
 tmux select-layout -t "$SESSION" even-vertical >/dev/null 2>&1
 tmux split-window -v -t "$pane3" 'cava'
 pane4=$(tmux display-message -p "#{pane_id}")
-# SET EQUAL SPACING
+
 tmux select-layout -t "$SESSION" even-vertical
-# --- HORISONTAL SPLIT PANES ---
-# | FOR LINE2
-# PANE5
-tmux split-window -h -t "$pane1" 'bash ~/scripts/ssh-auth'
+
+# Horizontal splits
+cmd_pane5='watch -ctn1 "w | grep -v tmux | awk '\''NR>1 {printf \"%-7s %-6s %-14s %-6s %-6s %-0s\n\",\$1,\$2,\$3,\$4,\$5,\$8}'\''"'
+tmux split-window -h -t "$pane1" "$cmd_pane5"
 pane5=$(tmux display-message -p "#{pane_id}")
-# | FPR LINE3
-# PANE6
+
+tmux split-window -h -t "$pane5" 'watch -ctn 10 bash ~/scripts/ksk/gmail && read'
+pane11=$(tmux display-message -p "#{pane_id}")
+
 tmux split-window -h -t "$pane2" 'tty-clock -cs -C 5'
 pane6=$(tmux display-message -p "#{pane_id}")
-# PANE7
+
 ssh_ip=$(echo $SSH_CLIENT | awk '{print $1}')
 if [[ "$ssh_ip" == 217.146.66.5 ]]; then
    tmux split-window -h -t "$pane6" 'bash ~/scripts/ksk/bus -b 13 -f Väike-Õismäe -a zone'
@@ -51,13 +52,12 @@ else
    tmux split-window -h -t "$pane6" 'bash ~/scripts/ksk/bus -b 13 -f Priisle -a kodu'
 fi
 pane7=$(tmux display-message -p "#{pane_id}")
+
 (
   while true; do
     sleep 2
-    for i in {1..10}; do
-      tmux send-keys -t "$pane7" a
-      tmux send-keys -t "$pane7" a
-      tmux send-keys -t "$pane7" a
+    for i in {1..8}; do
+      tmux send-keys -t "$pane7" a a a a
       sleep 1
     done
     sleep 1
@@ -65,40 +65,35 @@ pane7=$(tmux display-message -p "#{pane_id}")
   done
 ) &
 pane7=$(tmux display-message -p "#{pane_id}")
-# | FOR LINE4
-# PANE8
+
 tmux split-window -h -t "$pane3" 'bash ~/scripts/ksk/s-player'
 pane8=$(tmux display-message -p "#{pane_id}")
-# PANE9
-tmux split-window -h -t "$pane8" 'watch -tn 10 bash ~/scripts/ksk/gmail && read'
+tmux split-window -h -t "$pane8" 'bash ~/scripts/max/max'
 pane9=$(tmux display-message -p "#{pane_id}")
 
-# --- TMUX SETTINGS ---
+# TMUX SETTINGS
 tmux set-option -t "$SESSION" status off
-tmux set-option -t "$SESSION" pane-border-style fg=default
-tmux set-option -t "$SESSION" pane-active-border-style fg=default
+tmux set-option -t kiosk pane-border-style 'fg=black'
+tmux set-option -t kiosk pane-active-border-style 'fg=black'
 tmux set-option -t "$SESSION" mouse on
 tmux set-option -g display-panes-time 1
 tmux bind-key -T root q kill-session
 
-# --- TMUX RESIZE ---
-# VERTICAL LINES
-#tmux resize-pane -t "$pane0" -y 0
-#tmux resize-pane -t "$pane4" -y 0
-# HORISONTAL PANES
-tmux resize-pane -t "$pane2" -x 10
+# Resize panes
+tmux resize-pane -t "$pane0" -y 3
+tmux resize-pane -t "$pane1" -y 5
+tmux resize-pane -t "$pane1" -x 20
+tmux resize-pane -t "$pane2" -x 15
 tmux resize-pane -t "$pane2" -y 8
-tmux resize-pane -t "$pane3" -x 10
-tmux resize-pane -t "$pane5" -y 5
-tmux resize-pane -t "$pane5" -x 10
-tmux resize-pane -t "$pane6" -y 5
-tmux resize-pane -t "$pane7" -x 30
-tmux resize-pane -t "$pane8" -y 2
-tmux resize-pane -t "$pane9" -x 30
-#tmux resize-pane -t "$pane1" -x 10
-#tmux resize-pane -t "$pane9" -y 5
+tmux resize-pane -t "$pane3" -x 5
+tmux resize-pane -t "$pane5" -y 4
+tmux resize-pane -t "$pane6" -y 6
+tmux resize-pane -t "$pane7" -x 20
+tmux resize-pane -t "$pane8" -y 3
+tmux resize-pane -t "$pane9" -x 20
+tmux resize-pane -t "$pane11" -x 20
 
-# --- SHOW/HIDE/MODIFY PANES WHEN SPOTIFY PLAYING ---
+# Spotify hide/show panes
 (
   hidden=false
   while true; do
@@ -106,9 +101,8 @@ tmux resize-pane -t "$pane9" -x 30
     status=$(playerctl -p spotify status 2>/dev/null)
     if [[ "$status" == "Playing" ]]; then
       if $hidden; then
-        tmux resize-pane -t "$pane0" -y 7 2>/dev/null
-        tmux resize-pane -t "$pane4" -y 7 2>/dev/null
-
+        tmux resize-pane -t "$pane0" -y 6 2>/dev/null
+        tmux resize-pane -t "$pane4" -y 6 2>/dev/null
         tmux resize-pane -t "$pane2" -y 8 2>/dev/null
         hidden=false
       fi
@@ -116,7 +110,6 @@ tmux resize-pane -t "$pane9" -x 30
       if ! $hidden; then
         tmux resize-pane -t "$pane0" -y 0 2>/dev/null
         tmux resize-pane -t "$pane4" -y 0 2>/dev/null
-
         tmux resize-pane -t "$pane2" -y 8 2>/dev/null
         hidden=true
       fi
@@ -124,15 +117,42 @@ tmux resize-pane -t "$pane9" -x 30
   done
 ) &
 
-# --- POST SETUP ---
-# FIX/RESPAWN C-PLAYING AND TTY-CLOCK
+# Respawn key panes
 (sleep 1;
 tmux respawn-pane -k -t "$SESSION"."$pane0"
 tmux respawn-pane -k -t "$SESSION"."$pane6"
 tmux respawn-pane -k -t "$SESSION"."$pane8"
 ) &
-# FOCUS ON PANE
 tmux select-pane -t "$pane8"
 
-# --- START SESSION ---
+# --- SESSION 2: TRANSPORT (2x2) ---
+SESSION2="transport"
+tmux new-session -d -s "$SESSION2"
+
+pane0_t=$(tmux list-panes -t "$SESSION2" -F "#{pane_id}" | head -n1)
+tmux split-window -v -t "$pane0_t"
+pane1_t=$(tmux display-message -p "#{pane_id}")
+
+tmux split-window -h -t "$pane0_t"
+pane2_t=$(tmux display-message -p "#{pane_id}")
+
+tmux split-window -h -t "$pane1_t"
+pane3_t=$(tmux display-message -p "#{pane_id}")
+
+# TMUX SETTINGS
+tmux set-option -t "$SESSION2" status off
+tmux set-option -t "$SESSION2" pane-border-style 'fg=black'
+tmux set-option -t "$SESSION2" pane-active-border-style 'fg=black'
+tmux set-option -t "$SESSION2" mouse on
+tmux set-option -g display-panes-time 1
+tmux bind-key -T root q kill-session
+tmux select-layout -t "$SESSION2" tiled
+tmux select-pane -t "$pane0_t"
+
+# --- GLOBAL SESSION SWITCH (server-wide) ---
+tmux set-option -g prefix C-a           # optional prefix
+tmux bind-key -n C-1 switch-client -t kiosk
+tmux bind-key -n C-2 switch-client -t transport
+
+# --- START TMUX SESSION ---
 tmux attach-session -t "$SESSION"
