@@ -35,7 +35,7 @@ if [[ -z "$URI" ]]; then
   exit 1
 fi
 
-echo "Playing \"$NAME\" by $ARTIST"
+echo "\"$NAME\" by $ARTIST"
 
 # Play in Spotify via playerctl
 playerctl --player=spotify open "$URI"

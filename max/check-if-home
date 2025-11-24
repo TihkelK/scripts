@@ -129,6 +129,8 @@ while true; do
                     hyprctl dispatch dpms off HDMI-A-1
                     node ~/scripts/tuya-control/remote.js led off
                     node ~/scripts/tuya-control/remote.js pluh-1 off
+                    node ~/scripts/tuya-control/remote.js pluh-2 off
+                    node ~/scripts/tuya-control/remote.js pluh-2 on
                     node ~/scripts/tuya-control/remote.js bulb-1 off
                     node ~/scripts/tuya-control/remote.js bulb-2 off
                 ) &

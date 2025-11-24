@@ -81,7 +81,7 @@ handle_command() {
     LAST_COMMAND_TIME=$now
 
     # --- EXIT WORD ---
-    if [[ "$cmd" == *"thanks"* || "$cmd" == *"thank you" ]]; then
+    if [[ "$cmd" == *"thanks"* || "$cmd" == *"thank you"* || "$cmd" == *"nothing"* || "$cmd" == *"never mind"* ]]; then
         LISTEN_MODE=0
         echo -e "${GREEN}[$(date '+%H:%M:%S')] | Exiting...${RESET}"
         $speak "you're welcome"
@@ -96,7 +96,7 @@ handle_command() {
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Playing...${RESET}" && $speak "okay"
             playerctl play -p spotify
             ;;
-        *"pause"*|*"stop"*)
+        *"pause"*|*"stop"*|*"shut up"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Stopping...${RESET}" && $speak "okay"
             playerctl stop -p spotify
             ;;
@@ -114,7 +114,7 @@ handle_command() {
             pactl set-sink-volume @DEFAULT_SINK@ -25%
             CURRENT_VOLUME=$(pactl get-sink-volume @DEFAULT_SINK@ | awk '{print $5}' | head -n1)
             ;;
-        *"reset volume"*)
+        *"reset"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Resetting volume...${RESET}" && $speak "okay"
             pactl set-sink-volume @DEFAULT_SINK@ 100%
             playerctl volume 0.8 -p spotify
@@ -122,10 +122,9 @@ handle_command() {
             ;;
         "spotify"*)
             cmd="${cmd#* }"
-echo $cmd
+echo "Heard: $cmd"
             s_query_result=$(bash ~/scripts/max/s-query "$cmd")
-echo $s_query_result
-            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Playing: $s_query_result on spotify...${RESET}" && $speak "okay"
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Spotify: $s_query_result${RESET}" && $speak "okay"
             ;;
 
         # --- TV ---
@@ -157,8 +156,10 @@ echo $s_query_result
             node ~/scripts/tuya-control/remote.js bulb-2 off
             node ~/scripts/tuya-control/remote.js led off
             node ~/scripts/tuya-control/remote.js pluh-1 off
-            ;;
-        *"red"*)
+            node ~/scripts/tuya-control/remote.js pluh-2 off
+            node ~/scripts/tuya-control/remote.js pluh-2 on
+;;
+        *"color red"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on red mode...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js bulb-1 on
             node ~/scripts/tuya-control/remote.js bulb-1 mode color red
@@ -230,9 +231,18 @@ echo $s_query_result
             node ~/scripts/tuya-control/remote.js led mode color whiteled
             node ~/scripts/tuya-control/remote.js pluh-1 on
             ;;
+        *"seizure"*|*"flash"*|*"flesh"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning on seizure mode...${RESET}" && $speak "okay"
+            nohup node ~/scripts/tuya-control/remote.mjs >/dev/null 2>&1 &
+            echo $! > /tmp/tuya-beat.pid
+            ;;
+        *"calm down"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turning off seizure mode...${RESET}" && $speak "okay"
+            kill $(cat /tmp/tuya-beat.pid) && rm /tmp/tuya-beat.pid
+            ;;
 
         # --- OTHER ---
-        *"shut down"*)
+        *"shut down"*|*"shot down"*|*"shut though"*|*"shot though"*)
             echo -e "${GREEN}[$(timestamp)] | Shutting down...${RESET}" && $speak "shutting down"
             node ~/scripts/tuya-control/remote.js bulb-1 off
             node ~/scripts/tuya-control/remote.js bulb-2 off
@@ -268,6 +278,11 @@ echo $s_query_result
             playerctl next -p spotify
             adb shell input keyevent KEYCODE_WAKEUP
             hyprctl dispatch dpms on HDMI-A-1
+            ;;
+        *"screen off"*|*"screen of"*)
+            echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turing off projector...${RESET}" && $speak "okay"
+            node ~/scripts/tuya-control/remote.js pluh-2 off
+            node ~/scripts/tuya-control/remote.js pluh-2 on
             ;;
         #"who"*|"what"*|"where"*|"when"*|"why"*|"how"*|"do"*|"does"*|"did"*|"is"*|"are"*|"am"*|"was"*|"were"*|"can"*|"could"*|"would"*|"will"*|"shall"*|"should"*|"has"*|"have"*|"had"*|"may"*|"might"*|"must"*)
         "question"*)
