@@ -32,8 +32,8 @@ Also, for some reason ~/.mapscii/* and ~/.cache/mapscii-nodejs/* must be copied 
 systemctl --user enable --now pipewire pipewire-pulse
 ```
 
-- ### journalctl permission commands:
+- ### journalctl permission setup:
 ```
 sudo usermod -aG systemd-journal $USER
-newgrp systemd-journal
 ```
+relogin to force changes
