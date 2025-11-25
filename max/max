@@ -252,8 +252,8 @@ echo "Heard: $cmd"
             node ~/scripts/tuya-control/remote.js pluh-2 on
             adb connect $TV
             playerctl stop -p spotify
-            nohup bash -c "sleep 3 && adb shell input keyevent KEYCODE_SLEEP" &
-            adb shell input text "q"
+            nohup bash -c "sleep 3 && adb shell input keyevent KEYCODE_SLEEP && tmux kill-server >/dev/null 2>&1" &
+            #adb shell input text "q"
             ;;
         *"wake up")
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Waking up...${RESET}" && $speak "good moring"

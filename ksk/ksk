@@ -14,7 +14,7 @@ SESSION="kiosk"
 
 # --- VERTICAL LINES ---
 # LINE0
-tmux new-session -d -s "$SESSION" 'watch -ctn1 bash scripts/ksk/c-playing'
+tmux new-session -d -s "$SESSION" 'watch -ctn1 bash ~/scripts/ksk/c-playing'
 pane0=$(tmux list-panes -t "$SESSION" -F "#{pane_id}" | head -n1)
 # LINE1
 tmux select-layout -t "$SESSION" even-vertical >/dev/null 2>&1
