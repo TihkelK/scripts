@@ -8,7 +8,7 @@
 
 ## INSTALL
 ### Requirements
-- ### apt install
+- ### apt install [package]
 ```
 nodejs npm playerctl tty-clock pipx pipewire-pulse pulseaudio-utils espeak-ng cava tmux
 
