@@ -31,7 +31,6 @@ bash <(curl -s [yourdomain.com]/[script])
   ```
   bash <(curl -s mydomain.com/wp-to-zone.ssh) -u sshuser -h external.com -a pass -p Passw0rd -r /var/www/html
   ```
-
   - Parameters cheat sheet:
     - For SSH:
       ```
@@ -72,6 +71,26 @@ bash <(curl -s [yourdomain.com]/[script])
 * After that, the migration options are shown. Select the desired option by entering the option number.
 
 After that, the migration will begin and will show you if any errors/warnings come up. If none, then all done and the migration has finished.
+
+<br>
+
+## ns
+### Info:
+* Gives all the info available for the given domain. 
+### Contents:
+* All of the typical DNS records (like A, MX, TXT etc.) are dig'ed.
+* DNSSEC status check.
+* CMS/server check.
+* SUBDOMAIN history.
+* Minimal nmap port scan.
+### Usage:
+```
+bash <(curl -s [yourdomain.com]/ns) -d [domain.com]
+```
+or just:
+```
+bash <(curl -s [yourdomain.com]/ns)
+```
 
 <br>
 
