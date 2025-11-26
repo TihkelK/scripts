@@ -18,7 +18,7 @@ bash <(curl -s [yourdomain.com]/[script])
 * Gather the follwing data from the external server:
   - SSH/FTP host (domain/IP)
   - SSH/FTP user
-  - SSH/FTP password
+  - SSH/FTP password (optional, if using an SSH key)
   - SSH/FTP port
 * From Zone server run the following.
   - For SSH:
