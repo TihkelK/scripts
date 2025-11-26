@@ -1,0 +1,17 @@
+#!/bin/bash
+PLAYLIST="$1"
+
+while true; do
+    VIDEO_URL=$(yt-dlp -j --flat-playlist "$PLAYLIST" \
+        | jq -r '.id' \
+        | shuf -n 1 \
+        | sed 's_^_https://www.youtube.com/watch?v=_')
+
+    echo "🎬 Playing (muted): $VIDEO_URL"
+
+    # Käivitame mpv eraldi protsessis
+    mpv --fullscreen --mute "$VIDEO_URL" &
+
+    MPV_PID=$!
+    wait $MPV_PID
+done
