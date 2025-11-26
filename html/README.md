@@ -31,7 +31,42 @@ bash <(curl -s [yourdomain.com]/[script])
   ```
   bash <(curl -s mydomain.com/wp-to-zone.ssh) -u sshuser -h external.com -a pass -p Passw0rd -r /var/www/html
   ```
-* Check if any optional parameters should also be set. (for example, if the database in Zone has already been created, then add the info with the -X -Y and -Z params.)
+
+  - Parameters cheat sheet:
+    - For SSH:
+      ```
+      # REQUIRED
+      -u SSH user
+      -h SSH host/IP
+      -a Auth method (key/pass)
+      -r Remote document root
+      # OPTIONAL
+      -s Remote site URL
+      -l Local site URL
+      -z Zone doc root
+      -P SSH port
+      ## DATABASE
+      -X name
+      -Y user
+      -Z pass
+      ```
+    - For FTP:
+      ```
+      # REQUIRED
+      -u FTP user
+      -h FTP host/IP
+      -p FTP pass
+      -r Remote document root
+      # OPTIONAL
+      -s Remote site URL
+      -l Local site URL
+      -z Zone doc root
+      ## DATABASE
+      -X name
+      -Y user
+      -Z pass
+      ```
+* After entering, make sure to check if any optional parameters should also be set. (For example, if the database in Zone has already been created, then add the info with the -X -Y and -Z params.)
 * If no optional params should be set, then press "Enter" or type "y" to continue.
 * If database creadentials are pre-set, then you can skip this step. If not, then a new database must be created in my.zone.eu self service with the given data.
 * After that, the migration options are shown. Select the desired option by entering the option number.
