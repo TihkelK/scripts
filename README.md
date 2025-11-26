@@ -1,13 +1,21 @@
 # SCRIPTS
-### Usage:
+### Info:
 * most scripts depend on the "/scripts" folder being located at ~/
 
 ### Contents:
-* MAX-THE-LLM : Locally hosted LLM with built in commands.
-* KIOSK : Tmux based TV kiosk showing every day things like time, calendar, spotify etc.
+* MAX i.e. MAX-THE-LLM : Locally hosted LLM with built in commands.
+* KSK i.e. KIOSK : Tmux based TV kiosk showing every day things like time, calendar, spotify etc.
+* HTML i.e. curl|bash : Useful curl|bash type scripts.
 
-## INSTALL
-### Requirements
+# SETUP/INSTALL
+# curl|bash
+```
+sudo rm -rf /var/www/html
+sudo ln -s ~/scripts/html /var/www/html
+```
+
+## MAX and KSK
+### Requirements:
 - ### apt install [package]
 ```
 nodejs npm playerctl tty-clock pipx pipewire-pulse pulseaudio-utils espeak-ng cava tmux
