@@ -29,9 +29,9 @@ bash <(curl -s [yourdomain.com]/[script])
     ```
     bash <(curl -s [yourdomain.com]/wp-to-zone.ftp)
     ```
-* Depending on what's missing, add the required parameters to the same command. For example:
+* Depending on what's missing, add the required parameters to the same command. An example for the SSH script:
   ```
-  bash <(curl -s [yourdomain.com]/wp-to-zone.ssh) -u sshuser -h external.com -a key -r /var/www/html
+  bash <(curl -s [mydomain.com]/wp-to-zone.ssh) -u sshuser -h external.com -a pass -p Passw0rd -r /var/www/html
   ```
 * Check if any optional parameters should also be set. (for example, if the database in Zone has already been created, then add the info with the -X -Y and -Z params.)
 * If no optional params should be set, then press "Enter" or type "y" to continue.
