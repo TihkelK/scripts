@@ -1,5 +1,5 @@
 #!/bin/bash
-bash <(curl -s dev.tihkel.ee/banner.id) "INODES"
+bash <(curl -s vps.tihkel.ee/banner.id) "INODES"
 echo
 
 # --- COLORS ---
