@@ -7,6 +7,8 @@
 * KSK i.e. KIOSK : Tmux based TV kiosk showing every day things like time, calendar, spotify etc.
 * HTML i.e. curl|bash : Useful curl|bash type scripts.
 
+<br>
+
 ## SETUP/INSTALL
 - ## curl|bash
 ```
