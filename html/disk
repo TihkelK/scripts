@@ -1,5 +1,5 @@
 #!/bin/bash
-bash <(curl -s dev.tihkel.ee/banner.id) "DISK"
+bash <(curl -s vps.tihkel.ee/banner.id) "DISK"
 
 main_fs="/dev/$(lsblk -no NAME -r -o NAME,MOUNTPOINT | awk '$2=="/"{print $1}')"
 COLOR="\033[1;35m"
