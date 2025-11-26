@@ -1,6 +1,6 @@
 #!/bin/bash
 clear
-bash <(curl -s dev.tihkel.ee/banner.id) "WP-TO-ZONE.SSH"
+bash <(curl -s vps.tihkel.ee/banner.id) "WP-TO-ZONE.SSH"
 set -euo pipefail
 [[ "$(hostname)" != *zone* ]] && { echo "Error: Scipt must be ran from a Zone server."; exit 1; }
 
