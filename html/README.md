@@ -8,7 +8,7 @@ bash <(curl -s [yourdomain.com]/[script])
 
 ## wp-to-zone.(ssh|ftp)
 ### Info:
-* Meant only for Zone SN servers to migrate external WordPress websites to Zone via SSH or FTP.
+* Meant only for Zone SN servers to migrate external (or local) WordPress websites to Zone via SSH or FTP.
 * Depending on the option selected, the specification on how the migration is done for...
   - SSH:
   File transfer is done using "rsync". Database dump is done with the external server's DB credentials, that are received from the WordPress "wp-config.php" file using "sed".
