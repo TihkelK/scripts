@@ -73,7 +73,7 @@ After that, the migration will begin and will show you if any errors/warnings co
 ## aliases
 Meant for personal use, but can be used by updating ~/.bashrc with the following imput:
 ```
-source bash <(curl -s [yourdomain.com]/aliases)
+source <(curl -s [yourdomain.com]/aliases)
 ```
 
 <br>
