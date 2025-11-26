@@ -1,0 +1,1455 @@
+#!/bin/bash
+clear
+bash <(curl -s dev.tihkel.ee/banner.id) "WP-TO-ZONE.FTP"
+set -euo pipefail
+[[ "$(hostname)" != *zone* ]] && { echo "Error: Scipt must be ran from a Zone server."; exit 1; }
+
+# --- DEFAULTS ---
+# ZONE CONF
+WWWDOMAIN="$(ls domeenid | head -n 1)"
+DOMAIN="${WWWDOMAIN#www.}"
+LOCAL_DOCROOT="$(pwd)/domeenid/$WWWDOMAIN/htdocs"
+LOCAL_DB_HOST="$(mysql --print-defaults | grep -o -- '--host=[^ ]*' | cut -d= -f2)"
+LOCAL_DB_NAME=""
+LOCAL_DB_USER=""
+LOCAL_DB_PASS=""
+# REMOTE CONF
+FTP_USER=""
+FTP_HOST=""
+FTP_PASS=""
+REMOTE_FTP_PATH=""
+REMOTE_SITE_URL="https://$DOMAIN"
+LOCAL_SITE_URL="https://$DOMAIN"
+
+# --- PARAMS ---
+while getopts "u:h:P:a:k:p:r:s:l:z:X:Y:Z:" opt; do
+    case $opt in
+        u) FTP_USER="$OPTARG" ;;
+        h) FTP_HOST="$OPTARG" ;;
+        p) FTP_PASS="$OPTARG" ;;
+        r) REMOTE_FTP_PATH="$OPTARG" ;;
+        s) REMOTE_SITE_URL="$OPTARG" ;;
+        l) LOCAL_SITE_URL="$OPTARG" ;;
+        z) LOCAL_DOCROOT="$OPTARG" ;;
+        X) LOCAL_DB_NAME="$OPTARG" ;;
+        Y) LOCAL_DB_USER="$OPTARG" ;;
+        Z) LOCAL_DB_PASS="$OPTARG" ;;
+    esac
+done
+
+# --- CHECK REQUIRED PARAMS ---
+check_missing_required() {
+    local missing=()
+    [[ -z "$FTP_USER" ]] && missing+=("-u FTP user")
+    [[ -z "$FTP_HOST" ]] && missing+=("-h FTP host/IP")
+    [[ -z "$FTP_PASS" ]] && missing+=("-p FTP pass")
+    [[ -z "$REMOTE_FTP_PATH" ]] && missing+=("-r Remote document root")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Error: Missing required params:"
+        for param in "${missing[@]}"; do
+            echo "  $param"
+        done
+        return 1
+    fi
+    return 0
+}
+if ! check_missing_required; then
+    exit 1
+else
+    echo -e "\e[1;4mContinuing FTP migration with:\e[0m"
+    echo -e "\e[1mHOST:\e[0m $FTP_HOST"
+    echo -e "\e[1mUSER:\e[0m $FTP_USER"
+    echo -e "\e[1mPASS:\e[0m $FTP_PASS"
+    echo -e "\e[1mSOURCE:\e[0m $REMOTE_FTP_PATH"
+    echo -e "\e[1mDEST:\e[0m $LOCAL_DOCROOT"
+fi
+echo
+
+# --- CHECK OPTIONAL PARAMS ---
+optional_missing=()
+[[ "$REMOTE_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-s Remote site URL (default: $REMOTE_SITE_URL)")
+[[ "$LOCAL_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-l Local site URL (default: $LOCAL_SITE_URL)")
+[[ "$LOCAL_DOCROOT" == "$(pwd)/domeenid/$WWWDOMAIN/htdocs" ]] && optional_missing+=("-z Zone doc root (default: ~/htdocs)")
+if [[ ${#optional_missing[@]} -gt 0 ]]; then
+    echo -e "\e[1;4mOptional params:\e[0m"
+    for param in "${optional_missing[@]}"; do
+        echo "  $param"
+    done
+    echo "  Database:"
+    echo "    -X name"
+    echo "    -Y user"
+    echo "    -Z pass"
+    read -rp "Continue with defaults? (Y/n) " ans
+    ans=${ans:-Y}
+    if [[ ! "$ans" =~ ^[yY]$ ]]; then
+        echo "Aborting. Please rerun the script with the desired parameters."
+        exit 1
+    fi
+fi
+echo
+
+# --- DATABASE SETUP ---
+# DB_NAME
+if [[ -z "$LOCAL_DB_NAME" ]]; then
+    if [[ "$(basename "$LOCAL_DOCROOT")" != "htdocs" ]]; then
+        SUBDOMAIN=$(basename "$LOCAL_DOCROOT")
+        LOCAL_DB_NAME="${LOCAL_DB_HOST%%.*}_${SUBDOMAIN}"
+        LOCAL_DB_USER="${LOCAL_DB_NAME}user"
+    else
+        LOCAL_DB_NAME="${LOCAL_DB_HOST%%.*}_htdocs"
+    fi
+fi
+# DB_USER
+if [[ -z "$LOCAL_DB_USER" ]]; then
+    LOCAL_DB_USER="${LOCAL_DB_NAME}user"
+fi
+# DB_PASS
+if [[ -z "$LOCAL_DB_PASS" ]]; then
+    LOCAL_DB_PASS="$(openssl rand -base64 12)"
+fi
+
+echo -e "\e[1;4mCreate following database and user in My Zone:\e[0m"
+echo -e "\e[1mNAME\e[0m: $LOCAL_DB_NAME$([[ " $@ " =~ " -X " ]] && echo -e '\e[32m (preset)\e[0m')"
+echo -e "\e[1mUSER\e[0m: $LOCAL_DB_USER$([[ " $@ " =~ " -Y " ]] && echo '\e[32m (preset)\e[0m')"
+#echo -e "\e[1mPASS\e[0m: $LOCAL_DB_PASS$([[ " $@ " =~ " -Z " ]] && echo '\e[32m (preset)\e[0m')"
+echo -e "\e[1mPASS\e[0m: $LOCAL_DB_PASS$([[ " $@ " =~ " -Z " ]] && echo -e '\e[32m (preset)\e[0m' || echo -e '\e[31m (random)\e[0m')"
+echo
+echo
+
+
+
+
+#?=== Configuration ===
+# === Remote Site FTP Info ===
+# === Site URLs ===
+# === Local info ===
+
+# --- T-SCRIPT-MODIFY ---
+# 1.PHP
+cat << 'EOF' > 1_get_docroot_8qejwjkeda.php
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+echo realpath(getcwd());
+
+@unlink(__FILE__);
+EOF
+# 2.PHP
+cat << 'EOF' > 2_backup_9dgf9g0askj.php
+<?php
+error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
+ini_set('display_errors', 1);
+set_time_limit(0);
+
+// Get mode and compression from query parameters
+$mode = isset($_GET['mode']) ? $_GET['mode'] : 'full';
+$compression = isset($_GET['compression']) ? $_GET['compression'] : 'true';
+
+$backupName = 'wp_site_backup_' . time() . '_' . rand(1000, 9999) . '.zip';
+$excludeFile = 'tar-exclude-' . time() . '.txt';
+
+// Define backup directories and their file patterns
+$backupPaths = array(
+    'wp-content/ai1wm-backups/*',
+    'wp-content/updraft/*',
+    'wp-content/backups-dup-lite/*',
+    'wp-content/backups-dup-pro/*',
+    'wp-content/uploads/db-backup/*',
+    'wp-content/uploads/wp-staging/backups/*',
+    'wp-content/wpvividbackups/*',
+    'wp-content/uploads/backwpup/*'
+);
+
+// Define directories to exclude (for nobackups mode)
+$excludeDirs = array(
+    'wp-content/ai1wm-backups',
+    'wp-content/ai1wm-backups/*',
+    'wp-content/updraft',
+    'wp-content/updraft/*',
+    'wp-content/backups-dup-lite',
+    'wp-content/backups-dup-lite/*',
+    'wp-content/backups-dup-pro',
+    'wp-content/backups-dup-pro/*',
+    'wp-content/uploads/db-backup',
+    'wp-content/uploads/db-backup/*',
+    'wp-content/uploads/wp-staging/backups',
+    'wp-content/uploads/wp-staging/backups/*',
+    'wp-content/uploads/backwpup',
+    'wp-content/uploads/backwpup/*',
+    'wp-content/wpvividbackups',
+    'wp-content/wpvividbackups/*'
+);
+
+// At the top of the file, after the initial variables
+$scriptFiles = array(
+    '1_get_docroot_8qejwjkeda.php',
+    '2_backup_9dgf9g0askj.php',
+    '3_dump_3r59ui2423k.php'
+);
+
+// Function to check if a path should be excluded
+function shouldExclude($path, $excludes)
+{
+    foreach ($excludes as $exclude) {
+        // Convert glob pattern to regex
+        $pattern = str_replace(
+            array('*', '?', '/'),
+            array('.*', '.', '\/'),
+            $exclude
+        );
+        $pattern = '/^' . $pattern . '$/';
+        if (preg_match($pattern, $path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Function to create zip archive
+function createZipArchive($excludes, $noCompression = false)
+{
+    global $backupName;
+
+    $zip = new ZipArchive();
+    if ($zip->open($backupName, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== TRUE) {
+        return false;
+    }
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator('.', RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+
+    foreach ($iterator as $item) {
+        $path = $item->getPathname();
+        $relativePath = substr($path, 2); // Remove './' from the beginning
+
+        // Skip the backup file itself and exclude file
+        if ($path === './' . $backupName || $path === './' . $GLOBALS['excludeFile']) {
+            continue;
+        }
+
+        // Check if path should be excluded
+        if (shouldExclude($relativePath, $excludes)) {
+            continue;
+        }
+
+        if ($item->isDir()) {
+            $zip->addEmptyDir($relativePath);
+        } else {
+            if ($noCompression) {
+                $zip->addFile($path, $relativePath);
+                $zip->setCompressionName($relativePath, ZipArchive::CM_STORE); // NO COMPRESSION
+            } else {
+                $zip->addFile($path, $relativePath);
+            }
+        }
+    }
+
+    $zip->close();
+    return file_exists($backupName);
+}
+
+switch ($mode) {
+    case 'full':
+        // Determine compression based on parameter
+        $output = array();
+        $return_var = 0;
+        
+        if ($compression === 'true') {
+            $tarName = str_replace('.zip', '.tar.gz', $backupName);
+            $cmd = "tar -czf $tarName --exclude-from='$excludeFile' .";
+        } else {
+            $tarName = str_replace('.zip', '.tar', $backupName);
+            $cmd = "tar -cf $tarName --exclude-from='$excludeFile' .";
+        }
+
+        $excludes = array_merge(
+            array('wp-content/cache', 'wp-content/cache/*', 'wp-content/debug.log', 'elkdata_redirect_http_to_https_301', 'elkdata_redirect_http_to_https_302', 'elkdata_redirect_www_to_nonwww_301', 'elkdata_redirect_www_to_nonwww_302', 'elkdata_redirect_nonwww_to_www_301', 'elkdata_redirect_nonwww_to_www_302', 'error_log', $excludeFile, $backupName, $tarName),
+            $scriptFiles
+        );
+        file_put_contents($excludeFile, implode("\n", $excludes));
+
+        @exec($cmd, $output, $return_var);
+
+        if (file_exists($tarName)) {
+            // If tar succeeded, use the tar file directly
+            echo "SUCCESS:" . basename($tarName);
+        } else {
+            // If tar failed, try ZipArchive
+            $noCompression = ($compression === 'false');
+            if (!createZipArchive($excludes, $noCompression)) {
+                http_response_code(500);
+                echo "ERROR: Failed to create archive";
+                break;
+            }
+            echo "SUCCESS:" . basename($backupName);
+        }
+        break;
+
+    case 'backups':
+        // Find all backup files using the specific patterns
+        $files = array();
+        foreach ($backupPaths as $pattern) {
+            $matches = glob($pattern);
+            if ($matches) {
+                foreach ($matches as $file) {
+                    if (is_file($file)) {  // Only add if it's a file
+                        $files[] = $file;
+                    }
+                }
+            }
+        }
+
+        if (!empty($files)) {
+            echo "BACKUP_FILES:" . implode('|', $files);
+        } else {
+            http_response_code(404);
+            echo "ERROR: No backup files found";
+        }
+        break;
+
+    case 'nobackups':
+        // Determine compression based on parameter
+        $output = array();
+        $return_var = 0;
+        
+        if ($compression === 'true') {
+            $tarName = str_replace('.zip', '.tar.gz', $backupName);
+            $cmd = "tar -czf $tarName --exclude-from='$excludeFile' .";
+        } else {
+            $tarName = str_replace('.zip', '.tar', $backupName);
+            $cmd = "tar -cf $tarName --exclude-from='$excludeFile' .";
+        }
+
+        $excludes = array_merge(
+            array('wp-content/cache', 'wp-content/cache/*', 'wp-content/debug.log', 'elkdata_redirect_http_to_https_301', 'elkdata_redirect_http_to_https_302', 'elkdata_redirect_www_to_nonwww_301', 'elkdata_redirect_www_to_nonwww_302', 'elkdata_redirect_nonwww_to_www_301', 'elkdata_redirect_nonwww_to_www_302', 'error_log', $excludeFile, $backupName, $tarName),
+            $excludeDirs,
+            $scriptFiles
+        );
+        file_put_contents($excludeFile, implode("\n", $excludes));
+
+        @exec($cmd, $output, $return_var);
+
+        if (file_exists($tarName)) {
+            // If tar succeeded, use the tar file directly
+            echo "SUCCESS:" . basename($tarName);
+        } else {
+            // If tar failed, try ZipArchive
+            $noCompression = ($compression === 'false');
+            if (!createZipArchive($excludes, $noCompression)) {
+                http_response_code(500);
+                echo "ERROR: Failed to create archive";
+                break;
+            }
+            echo "SUCCESS:" . basename($backupName);
+        }
+        break;
+
+    default:
+        http_response_code(400);
+        echo "ERROR: Invalid mode specified";
+        exit;
+}
+
+// Clean up
+if (file_exists($excludeFile)) {
+    unlink($excludeFile);
+}
+@unlink(__FILE__);
+EOF
+# 3.PHP
+cat << 'EOF' > 3_dump_3r59ui2423k.php
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+set_time_limit(0);
+
+require_once 'wp-config.php';
+
+$backupFile = 'wp_dump_' . time() . '_' . rand(1000, 9999) . '.sql';
+
+/**
+ * Check if exec() function is available and enabled
+ */
+function isExecAvailable()
+{
+    // Check if exec function exists
+    if (!function_exists('exec')) {
+        return false;
+    }
+
+    // Check if exec is disabled in php.ini
+    $disabled = explode(',', ini_get('disable_functions'));
+    $disabled = array_map('trim', $disabled);
+    if (in_array('exec', $disabled)) {
+        return false;
+    }
+
+    // Try a simple test to see if exec actually works
+    $testResult = @exec('echo "test"', $testOutput, $testReturnVar);
+    if ($testReturnVar !== 0 || empty($testResult)) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Pure PHP Database Backup Class - Optimized for memory efficiency
+ */
+class SimpleDatabaseDump
+{
+    private $host;
+    private $username;
+    private $password;
+    private $dbName;
+    private $conn;
+    private $backupFile;
+    private $batchSize = 500; // Process rows in batches of 500
+    private $gzipBackupFile = true; // Enable gzip compression by default
+
+    public function __construct($host, $username, $password, $dbName, $backupFile)
+    {
+        $this->host = $host;
+        $this->username = $username;
+        $this->password = $password;
+        $this->dbName = $dbName;
+        $this->backupFile = $backupFile;
+        $this->conn = $this->initializeDatabase();
+    }
+
+    private function initializeDatabase()
+    {
+        $conn = mysqli_connect($this->host, $this->username, $this->password, $this->dbName);
+        if (mysqli_connect_errno()) {
+            throw new Exception('ERROR connecting database: ' . mysqli_connect_error());
+        }
+        if (!mysqli_set_charset($conn, 'utf8mb4')) {
+            mysqli_query($conn, 'SET NAMES utf8mb4');
+        }
+        return $conn;
+    }
+
+    private function writeToFile($content)
+    {
+        if (!empty($content)) {
+            file_put_contents($this->backupFile, $content, FILE_APPEND | LOCK_EX);
+        }
+    }
+
+    private function formatValue($value)
+    {
+        if (!isset($value) || $value === null) {
+            return 'NULL';
+        }
+
+        $value = addslashes($value);
+        $value = str_replace("\n", "\\n", $value);
+        $value = str_replace("\r", "\\r", $value);
+        $value = str_replace("\f", "\\f", $value);
+        $value = str_replace("\t", "\\t", $value);
+        $value = str_replace("\v", "\\v", $value);
+        $value = str_replace("\a", "\\a", $value);
+        $value = str_replace("\b", "\\b", $value);
+
+        if ($value == 'true' or $value == 'false' or preg_match('/^-?[1-9][0-9]*$/', $value) or $value == 'NULL' or $value == 'null') {
+            return $value;
+        } else {
+            return '"' . $value . '"';
+        }
+    }
+
+    public function createBackup()
+    {
+        try {
+            // Increase memory limit for this script
+            ini_set('memory_limit', '2G');
+
+            // Simple structure like backup-pure-php.php
+
+            // Get all tables
+            $tables = array();
+            $result = mysqli_query($this->conn, 'SHOW TABLES');
+            while ($row = mysqli_fetch_row($result)) {
+                $tables[] = $row[0];
+            }
+            mysqli_free_result($result);
+
+            $sql = '';
+
+            /**
+             * Disable foreign key checks 
+             */
+            $sql .= "SET foreign_key_checks = 0;\n\n";
+
+            /**
+             * Iterate tables
+             */
+            foreach ($tables as $table) {
+                /**
+                 * CREATE TABLE
+                 */
+                $sql .= 'DROP TABLE IF EXISTS `' . $table . '`;';
+                $row = mysqli_fetch_row(mysqli_query($this->conn, 'SHOW CREATE TABLE `' . $table . '`'));
+                $sql .= "\n\n" . $row[1] . ";\n\n";
+
+                /**
+                 * INSERT INTO
+                 */
+                $row = mysqli_fetch_row(mysqli_query($this->conn, 'SELECT COUNT(*) FROM `' . $table . '`'));
+                $numRows = $row[0];
+
+                // Split table in batches in order to not exhaust system memory 
+                $numBatches = intval($numRows / $this->batchSize) + 1;
+
+                for ($b = 1; $b <= $numBatches; $b++) {
+                    $query = 'SELECT * FROM `' . $table . '` LIMIT ' . ($b * $this->batchSize - $this->batchSize) . ',' . $this->batchSize;
+                    $result = mysqli_query($this->conn, $query);
+                    $realBatchSize = mysqli_num_rows($result);
+                    $numFields = mysqli_num_fields($result);
+
+                    if ($realBatchSize !== 0) {
+                        $sql .= 'INSERT INTO `' . $table . '` VALUES ';
+
+                        for ($i = 0; $i < $numFields; $i++) {
+                            $rowCount = 1;
+                            while ($row = mysqli_fetch_row($result)) {
+                                $sql .= '(';
+                                for ($j = 0; $j < $numFields; $j++) {
+                                    if (isset($row[$j])) {
+                                        $row[$j] = addslashes($row[$j]);
+                                        $row[$j] = str_replace("\n", "\\n", $row[$j]);
+                                        $row[$j] = str_replace("\r", "\\r", $row[$j]);
+                                        $row[$j] = str_replace("\f", "\\f", $row[$j]);
+                                        $row[$j] = str_replace("\t", "\\t", $row[$j]);
+                                        $row[$j] = str_replace("\v", "\\v", $row[$j]);
+                                        $row[$j] = str_replace("\a", "\\a", $row[$j]);
+                                        $row[$j] = str_replace("\b", "\\b", $row[$j]);
+                                        if ($row[$j] == 'true' or $row[$j] == 'false' or preg_match('/^-?[1-9][0-9]*$/', $row[$j]) or $row[$j] == 'NULL' or $row[$j] == 'null') {
+                                            $sql .= $row[$j];
+                                        } else {
+                                            $sql .= '"' . $row[$j] . '"';
+                                        }
+                                    } else {
+                                        $sql .= 'NULL';
+                                    }
+
+                                    if ($j < ($numFields - 1)) {
+                                        $sql .= ',';
+                                    }
+                                }
+
+                                if ($rowCount == $realBatchSize) {
+                                    $rowCount = 0;
+                                    $sql .= ");\n"; //close the insert statement
+                                } else {
+                                    $sql .= "),\n"; //close the row
+                                }
+
+                                $rowCount++;
+                            }
+                        }
+
+                        $this->writeToFile($sql);
+                        $sql = '';
+                    }
+
+                    mysqli_free_result($result);
+                }
+
+                $sql .= "\n\n";
+            }
+
+            /**
+             * Re-enable foreign key checks 
+             */
+            $sql .= "SET foreign_key_checks = 1;\n";
+
+            $this->writeToFile($sql);
+
+            // Compress the backup file
+            if ($this->gzipBackupFile()) {
+                return true;
+            }
+
+            return true;
+
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+
+
+    /*
+     * Gzip backup file
+     *
+     * @param integer $level GZIP compression level (default: 9)
+     * @return string New filename (with .gz appended) if success, or false if operation fails
+     */
+    private function gzipBackupFile($level = 9)
+    {
+        if (!$this->gzipBackupFile) {
+            return true;
+        }
+
+        $source = $this->backupFile;
+        $dest = $source . '.gz';
+
+        $mode = 'wb' . $level;
+        if ($fpOut = gzopen($dest, $mode)) {
+            if ($fpIn = fopen($source, 'rb')) {
+                while (!feof($fpIn)) {
+                    gzwrite($fpOut, fread($fpIn, 1024 * 256));
+                }
+                fclose($fpIn);
+            } else {
+                return false;
+            }
+            gzclose($fpOut);
+            if (!unlink($source)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Update the backup file name to the compressed version
+        $this->backupFile = $dest;
+        return $dest;
+    }
+}
+
+// Try mysqldump first (exec method)
+if (isExecAvailable()) {
+    // Use gzip compression directly with mysqldump
+    $gzipBackupFile = $backupFile . '.gz';
+    $command = sprintf(
+        'mysqldump --single-transaction --lock-tables --routines --triggers --events --default-character-set=utf8mb4 --protocol=TCP -h %s -u%s -p%s %s | gzip -9 > %s',
+        DB_HOST,
+        DB_USER,
+        DB_PASSWORD,
+        DB_NAME,
+        $gzipBackupFile
+    );
+
+    @exec($command, $output, $return_var);
+
+    if ($return_var === 0 && file_exists($gzipBackupFile)) {
+        echo "SUCCESS:$gzipBackupFile";
+        @unlink(__FILE__);
+        exit;
+    }
+}
+
+// Fallback to pure PHP method
+try {
+    $dumper = new SimpleDatabaseDump(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, $backupFile);
+    $result = $dumper->createBackup();
+
+    // The backup file might be compressed, so we need to check both possibilities
+    $finalBackupFile = $backupFile;
+    if (file_exists($backupFile . '.gz')) {
+        $finalBackupFile = $backupFile . '.gz';
+    }
+
+    if ($result && file_exists($finalBackupFile)) {
+        echo "SUCCESS:$finalBackupFile";
+        @unlink(__FILE__);
+        exit;
+    } else {
+        echo "ERROR: Pure PHP backup failed";
+        exit;
+    }
+} catch (Exception $e) {
+    echo "ERROR: " . $e->getMessage();
+    exit;
+}
+EOF
+
+
+#! DO NOT CHANGE AFTER THIS LINE
+# === Temporary PHP Scripts ===
+GET_DOCROOT_SCRIPT_NAME="1_get_docroot_8qejwjkeda.php"
+FILE_BACKUP_SCRIPT_NAME="2_backup_9dgf9g0askj.php"
+DATABASE_DUMP_SCRIPT_NAME="3_dump_3r59ui2423k.php"
+
+# === Local SQL File Path ===
+LOCAL_SQL_FILE="./wp_dump_$(date +%s)_$RANDOM.sql"
+
+# === Embedded get_docroot PHP Script ===
+GET_DOCROOT_PHP_CONTENT='<?php
+error_reporting(E_ALL);
+ini_set("display_errors", 1);
+echo realpath(getcwd());
+@unlink(__FILE__);
+?>'
+
+# === Logging functions ===
+log() {
+    local level="$1"
+    shift
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $*"
+}
+infolog() {
+    local level="$1"
+    shift
+    echo -e "\e[90m[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $*\e[0m"
+}
+errorlog() {
+    local level="$1"
+    shift
+    echo -e "\e[31m[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $*\e[0m"
+}
+warnlog() {
+    local level="$1"
+    shift
+    echo -e "\e[33m[$(date +'%Y-%m-%d %H:%M:%S')] [$level] $*\e[0m"
+}
+
+info() { infolog "INFO" "$@"; }
+warn() { warnlog "WARN" "$@"; }
+error() { errorlog "ERROR" "$@"; exit 1; }
+
+# === Connection verification functions ===
+verify_ftp_connection() {
+    info "Verifying FTP connection to $FTP_HOST..."
+    if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+ls
+bye
+EOF
+    then
+        warn "Failed to connect to FTP server. Please check your credentials and connection."
+    fi
+    info "FTP connection verified successfully."
+}
+
+verify_mysql_connection() {
+    info "Verifying MySQL connection to $LOCAL_DB_HOST..."
+    if ! mysql -h "$LOCAL_DB_HOST" -u"$LOCAL_DB_USER" -p"$LOCAL_DB_PASS" -e "USE $LOCAL_DB_NAME" &>/dev/null; then
+        error "Failed to connect to MySQL database: $LOCAL_DB_NAME on $LOCAL_DB_HOST"
+    fi
+    info "MySQL connection verified successfully."
+}
+
+# === Check required tools ===
+check_requirements() {
+    local tools=("mysql" "lftp" "curl" "unzip" "sed" "wp")
+    
+    for tool in "${tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            error "Required tool '$tool' is not installed"
+        fi
+    done
+}
+
+delete_current_index_html() {
+    info "Deleting current index.html file..."
+    if [ -f "$LOCAL_DOCROOT/index.html" ]; then
+        if ! rm -f "$LOCAL_DOCROOT/index.html"; then
+            warn "Failed to delete index.html file"
+        else
+            info "index.html was deleted"
+        fi
+    else
+        info "There was no index.html file to delete"
+    fi
+}
+
+# === Get remote docroot path ===
+get_remote_docroot() {
+    info "Getting remote docroot path..."
+
+    # Write the embedded PHP script to a temporary file
+    echo "$GET_DOCROOT_PHP_CONTENT" > "$HOME/tmp/$GET_DOCROOT_SCRIPT_NAME"
+
+    # Upload get_docroot.php
+    lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+put $HOME/tmp/$GET_DOCROOT_SCRIPT_NAME -o $GET_DOCROOT_SCRIPT_NAME
+bye
+EOF
+
+    # Remove the temporary file
+    rm -f "$HOME/tmp/$GET_DOCROOT_SCRIPT_NAME"
+
+    # Extract domain from REMOTE_SITE_URL
+    #DOMAIN=$(echo "$REMOTE_SITE_URL" | sed -E 's|^https?://([^/]+).*|\1|')
+    
+    # Always use HTTPS for the initial request
+    HTTPS_URL="https://$DOMAIN"
+    
+    # Check if FTP_HOST is an IP address
+    if [[ $FTP_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # If FTP_HOST is an IP, use --resolve
+        REMOTE_DOCROOT=$(curl -s --resolve "${DOMAIN}:443:$FTP_HOST" "$HTTPS_URL/$GET_DOCROOT_SCRIPT_NAME")
+    else
+        # If FTP_HOST is a domain, use regular curl
+        REMOTE_DOCROOT=$(curl -s "$HTTPS_URL/$GET_DOCROOT_SCRIPT_NAME")
+    fi
+    
+    if [[ -z "$REMOTE_DOCROOT" ]]; then
+        error "Failed to get remote docroot path"
+    fi
+    
+    info "Remote docroot path: $REMOTE_DOCROOT"
+}
+
+# === .htaccess cPanel config cleanup ===
+cleanup_cpanel_config_from_htaccess() {
+    info "Checking .htaccess file for cPanel configuration..."
+    
+    local htaccess_file="$LOCAL_DOCROOT/.htaccess"
+    
+    if [[ ! -f "$htaccess_file" ]]; then
+        info "No .htaccess file found - skipping cleanup"
+        return 0
+    fi
+    
+    # Check if cPanel configuration exists in .htaccess
+    if ! grep -q "^# php -- BEGIN cPanel-generated handler, do not edit$" "$htaccess_file"; then
+        info "No cPanel configuration found in .htaccess - skipping cleanup"
+        return 0
+    fi
+    
+    info "cPanel configuration found in .htaccess - creating backup and cleaning up..."
+    
+    # Create backup of original .htaccess
+    local backup_file="${htaccess_file}.backup.$(date +%s)"
+    if ! cp "$htaccess_file" "$backup_file"; then
+        warn "Failed to create backup of .htaccess file"
+    else
+        info "Created backup of .htaccess: $backup_file"
+    fi
+    
+    # Remove cPanel-generated PHP handler section
+    # This pattern matches the entire section from "# php -- BEGIN cPanel-generated handler" 
+    # to "# php -- END cPanel-generated handler" including the content in between
+    if ! sed -i '/^# php -- BEGIN cPanel-generated handler, do not edit$/,/^# php -- END cPanel-generated handler, do not edit$/d' "$htaccess_file"; then
+        warn "Failed to remove cPanel PHP handler section from .htaccess"
+        return 1
+    fi
+    
+    # Remove any empty lines that might be left after the deletion
+    if ! sed -i '/^[[:space:]]*$/d' "$htaccess_file"; then
+        warn "Failed to clean up empty lines in .htaccess"
+    fi
+    
+    info "Successfully cleaned up cPanel config from .htaccess file"
+    return 0
+}
+
+# === Update paths in files ===
+update_file_paths() {
+    info "Running sed path replacement on WordPress files..."
+    
+    # Generate unique temporary file name
+    local temp_file="/tmp/old_path_files_$(date +%s)_$$.txt"
+    
+    info "Scanning for files containing old path: $REMOTE_DOCROOT"
+    
+    # Find files containing old path with comprehensive exclusions using optimized syntax
+    if ! grep -irl --exclude=*{\.log,log_errors,\.sql,\.gz,\.zip,\.tar,\.tgz,\.rar,\.7z,\.bz2,\.bak,\.wpress,\.exe,\.avi,\.mov,\.mp[0-9],\.mpg,\.mpeg,\.ts,\.mts,\.m2ts,\.webm,\.f4v,\.flv,\.mkv,\.m4v,\.wav,\.tif,\.pdf,\.psd,\.iso,\.mxf,\.j0[0-9],\.jpg,\.jpeg,\.png,\.gif,\.bmp,\.tiff,\.ico,\.svg,\.webp,\.heic,\.heif,\.raw,\.cr2,\.nef,\.arw,\.dng,\.orf,\.rw2,\.pef,\.srw,\.x3f,\.bin,\.dll,\.so,\.dylib,\.app,\.deb,\.rpm,\.msi,\.dmg,\.pkg,\.apk,\.ipa,\.war,\.ear,\.jar,\.class,\.pyc,\.pyo,\.o,\.a,\.lib,\.obj,\.com,\.bat,\.cmd,\.scr,\.pif,\.lnk,\.url,\.woff,\.woff2,\.ttf,\.otf,\.eot} --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=logs --exclude-dir=cache --exclude-dir=tmp --exclude-dir=temp "$REMOTE_DOCROOT" "$LOCAL_DOCROOT" > "$temp_file" 2>/dev/null; then
+        warn "No files found containing old path, or grep scan failed"
+        rm -f "$temp_file"
+    else
+        # Count files found
+        local file_count=$(wc -l < "$temp_file" 2>/dev/null || echo "0")
+        info "Found $file_count files containing old path"
+        
+        if [[ "$file_count" -gt 0 ]]; then
+            info "Starting path replacement on $file_count files using single sed command..."
+            
+            # Run sed only ONCE on all files that contain the old path - MUCH faster!
+            if sed -i "s|${REMOTE_DOCROOT}|${LOCAL_DOCROOT}|g" $(cat "$temp_file") 2>/dev/null; then
+                info "Path replacement completed successfully on all $file_count files"
+            else
+                warn "Some files could not be processed, trying individual file processing..."
+                # Fallback to individual processing if batch fails
+                local processed=0
+                while IFS= read -r file; do
+                    if [[ -f "$file" ]]; then
+                        if sed -i "s|${REMOTE_DOCROOT}|${LOCAL_DOCROOT}|g" "$file" 2>/dev/null; then
+                            ((processed++))
+                        fi
+                    fi
+                done < "$temp_file"
+                info "Path replacement completed on $processed files"
+            fi
+        else
+            info "No files need path replacement"
+        fi
+        
+        # Clean up temporary file
+        rm -f "$temp_file"
+    fi
+    
+    # Clean up .htaccess file after path updates
+    cleanup_cpanel_config_from_htaccess
+}
+
+# === Update paths in database ===
+update_database_paths() {
+    # Update site URLs only if they differ
+    if [ "${REMOTE_SITE_URL}" != "${LOCAL_SITE_URL}" ]; then
+        info "Updating database paths from $REMOTE_SITE_URL to $LOCAL_SITE_URL..."
+        if ! wp --path="${LOCAL_DOCROOT}" search-replace "${REMOTE_SITE_URL}" "${LOCAL_SITE_URL}" --skip-columns=guid --report-changed-only; then
+            error "Failed to update paths in database"
+        fi
+        info "Site URLs updated successfully"
+    else
+        info "Remote and local site URLs are identical - skipping URL update"
+    fi
+    
+    info "Updating docroot paths in database..."
+    if ! wp --path="${LOCAL_DOCROOT}" search-replace "${REMOTE_DOCROOT}" "${LOCAL_DOCROOT}" --skip-columns=guid --report-changed-only; then
+        error "Failed to update docroot paths in database"
+    fi
+    
+    info "Database paths updated successfully."
+}
+
+# === Helper Functions ===
+update_wp_config() {
+    info "Updating WordPress configuration..."
+    local config_path="$1"
+    
+    # Update database credentials
+    #sed -i "s/define\s*([[:space:]]*['\"]DB_NAME['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_NAME', '${LOCAL_DB_NAME}')/" "$config_path"
+    #sed -i "s/define\s*([[:space:]]*['\"]DB_USER['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_USER', '${LOCAL_DB_USER}')/" "$config_path"
+    #sed -i "s/define\s*([[:space:]]*['\"]DB_PASSWORD['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_PASSWORD', '${LOCAL_DB_PASS}')/" "$config_path"
+    #sed -i "s/define\s*([[:space:]]*['\"]DB_HOST['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_HOST', '${LOCAL_DB_HOST}')/" "$config_path"
+sed -i "s|define\s*([[:space:]]*['\"]DB_NAME['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('DB_NAME', '${LOCAL_DB_NAME}')|" "$config_path"
+sed -i "s|define\s*([[:space:]]*['\"]DB_USER['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('DB_USER', '${LOCAL_DB_USER}')|" "$config_path"
+sed -i "s|define\s*([[:space:]]*['\"]DB_PASSWORD['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('DB_PASSWORD', '${LOCAL_DB_PASS}')|" "$config_path"
+sed -i "s|define\s*([[:space:]]*['\"]DB_HOST['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('DB_HOST', '${LOCAL_DB_HOST}')|" "$config_path"
+    
+    # Check and update WP_HOME if it exists
+    if grep -q "define.*WP_HOME" "$config_path"; then
+        sed -i "s|define\s*([[:space:]]*['\"]WP_HOME['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('WP_HOME', '${LOCAL_SITE_URL}')|" "$config_path"
+        info "WP_HOME constant found in wp-config.php - will update it"
+    else
+        info "WP_HOME constant not found in wp-config.php - skipping its update"
+    fi
+
+    # Check and update WP_SITEURL if it exists
+    if grep -q "define.*WP_SITEURL" "$config_path"; then
+        sed -i "s|define\s*([[:space:]]*['\"]WP_SITEURL['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('WP_SITEURL', '${LOCAL_SITE_URL}')|" "$config_path"
+        info "WP_SITEURL constant found in wp-config.php - will update it"
+    else
+        info "WP_SITEURL constant not found in wp-config.php - skipping its update"
+    fi
+
+    info "WordPress configuration updated successfully"
+}
+
+handle_database_dump() {
+    # Upload and run dump.php
+    lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+put $DATABASE_DUMP_SCRIPT_NAME
+bye
+EOF
+    info "Database dump script uploaded successfully"
+
+    # Extract domain from REMOTE_SITE_URL
+    #DOMAIN=$(echo "$REMOTE_SITE_URL" | sed -E 's|^https?://([^/]+).*|\1|')
+    
+    # Always use HTTPS for the initial request
+    HTTPS_URL="https://$DOMAIN"
+    
+    # Get domain's IP address
+    DOMAIN_IP=$(dig +short "$DOMAIN")
+    
+    # Check if FTP_HOST is an IP address
+    if [[ $FTP_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # If FTP_HOST is an IP, use --resolve
+        RESPONSE=$(curl -s --resolve "${DOMAIN}:443:$FTP_HOST" "$HTTPS_URL/$DATABASE_DUMP_SCRIPT_NAME")
+    else
+        # If FTP_HOST is a domain, use --resolve with the resolved IP
+        if [[ -n "$DOMAIN_IP" ]]; then
+            RESPONSE=$(curl -s --resolve "${DOMAIN}:443:$DOMAIN_IP" "$HTTPS_URL/$DATABASE_DUMP_SCRIPT_NAME")
+        else
+            # Fallback to regular curl if we can't resolve the IP
+            RESPONSE=$(curl -s "$HTTPS_URL/$DATABASE_DUMP_SCRIPT_NAME")
+        fi
+    fi
+
+    if [[ $RESPONSE == SUCCESS:* ]]; then
+        REMOTE_SQL_FILE=$(echo "$RESPONSE" | cut -d':' -f2)
+        info "Dump created remotely: $REMOTE_SQL_FILE"
+    else
+        error "Remote dump failed: $RESPONSE"
+    fi
+
+    # Download SQL file (check if it's gzipped)
+    if [[ "$REMOTE_SQL_FILE" == *.gz ]]; then
+        LOCAL_SQL_GZ_FILE="${LOCAL_SQL_FILE}.gz"
+        lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+get $REMOTE_SQL_FILE -o "$LOCAL_SQL_GZ_FILE"
+bye
+EOF
+        info "Gzipped database dump downloaded, extracting..."
+        gunzip "$LOCAL_SQL_GZ_FILE"
+        info "Database dump extracted successfully"
+    else
+        lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+get $REMOTE_SQL_FILE -o "$LOCAL_SQL_FILE"
+bye
+EOF
+        info "Database dump downloaded successfully"
+    fi
+    return 0
+}
+
+handle_file_backup() {
+    local mode="$1"
+    local compression="${2:-true}"  # Default to compression if not specified
+    
+    # Upload and run backup.php
+    if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+put $FILE_BACKUP_SCRIPT_NAME
+bye
+EOF
+    then
+        warn "LFTP upload failed, but continuing anyway"
+    fi
+
+    # Extract domain from REMOTE_SITE_URL
+    #DOMAIN=$(echo "$REMOTE_SITE_URL" | sed -E 's|^https?://([^/]+).*|\1|')
+    
+    # Always use HTTPS for the initial request
+    HTTPS_URL="https://$DOMAIN"
+    
+    # Check if FTP_HOST is an IP address
+    if [[ $FTP_HOST =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # If FTP_HOST is an IP, use --resolve
+        RESPONSE=$(curl -s --resolve "${DOMAIN}:443:$FTP_HOST" "$HTTPS_URL/$FILE_BACKUP_SCRIPT_NAME?mode=$mode&compression=$compression")
+    else
+        # If FTP_HOST is a domain, use regular curl
+        RESPONSE=$(curl -s "$HTTPS_URL/$FILE_BACKUP_SCRIPT_NAME?mode=$mode&compression=$compression")
+    fi
+    
+    if [[ $RESPONSE == BACKUP_FILES:* ]]; then
+        # Handle direct file downloads
+        IFS='|' read -ra FILES <<< "${RESPONSE#BACKUP_FILES:}"
+        
+        mkdir -p "$LOCAL_DOCROOT/wp-content"
+        
+        for file in "${FILES[@]}"; do
+            # Skip if empty
+            [[ -z "$file" ]] && continue
+            
+            # Create the directory structure
+            dir=$(dirname "$LOCAL_DOCROOT/$file")
+            mkdir -p "$dir"
+            
+            info "Downloading backup file: $file"
+            
+            # Simple LFTP command without progress display
+            if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+get -c "$file" -o "$LOCAL_DOCROOT/$file"
+bye
+EOF
+            then
+                warn "Failed to download file $file, but continuing"
+            fi
+        done
+        
+        info "All backup files downloaded successfully"
+    elif [[ $RESPONSE == SUCCESS:* ]]; then
+        # Handle regular zip archive response
+        REMOTE_ARCHIVE_FILE=$(echo "$RESPONSE" | cut -d':' -f2)
+        info "Archive created remotely: $REMOTE_ARCHIVE_FILE"
+        
+        # Create archives directory if it doesn't exist
+        mkdir -p "$HOME/tmp/archives"
+        
+        # Create target directory if it doesn't exist
+        mkdir -p "$LOCAL_DOCROOT"
+        
+        # Download and extract archive
+        info "Downloading archive file..."
+
+        # Get domain's IP address
+        DOMAIN_IP=$(dig +short "$DOMAIN")
+        if [[ "$DOMAIN_IP" == "$FTP_HOST" ]]; then
+            info "Using HTTPS for download (IP match)"
+            # Try HTTPS first
+            if ! wget --no-check-certificate --progress=dot:giga -O "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" "https://${DOMAIN}/${REMOTE_ARCHIVE_FILE}"; then
+                info "HTTPS download failed, trying HTTP..."
+                # Try HTTP if HTTPS fails
+                if ! wget --progress=dot:giga -O "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" "http://${DOMAIN}/${REMOTE_ARCHIVE_FILE}"; then
+                    info "HTTP download failed, falling back to FTP..."
+                    # Fall back to FTP if both HTTP and HTTPS fail
+                    if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+get -c "$REMOTE_ARCHIVE_FILE" -o "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE"
+bye
+EOF
+                    then
+                        warn "FTP download failed, but continuing if file exists"
+                    fi
+                fi
+            fi
+        else
+            info "Using LFTP for download (IP mismatch)"
+            # Use LFTP if IPs don't match, but ignore non-critical errors
+            if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+get -c "$REMOTE_ARCHIVE_FILE" -o "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE"
+bye
+EOF
+            then
+                warn "LFTP download failed, but continuing if file exists"
+            fi
+        fi
+
+        # Verify the file exists and has size
+        if [[ ! -f "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" ]]; then
+            error "Archive file not found after download"
+        fi
+
+        FILESIZE=$(stat -f%z "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" 2>/dev/null || stat -c%s "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE")
+        if [[ $FILESIZE -eq 0 ]]; then
+            error "Downloaded archive file is empty"
+        fi
+
+        info "Download completed (${FILESIZE} bytes), starting extraction..."
+        info "Extracting archive..."
+        info "Archive path: $HOME/tmp/archives/$REMOTE_ARCHIVE_FILE"
+        info "Target directory: $LOCAL_DOCROOT"
+        
+        # Check if target directory exists and is writable
+        if [[ ! -d "$LOCAL_DOCROOT" ]]; then
+            info "Creating target directory: $LOCAL_DOCROOT"
+            mkdir -p "$LOCAL_DOCROOT"
+        fi
+        
+        if [[ ! -w "$LOCAL_DOCROOT" ]]; then
+            error "Target directory is not writable: $LOCAL_DOCROOT"
+        fi
+        
+        # Extract the archive based on file extension
+        info "Starting extraction operation..."
+        
+        if [[ "$REMOTE_ARCHIVE_FILE" == *.tar.gz ]]; then
+            # Extract tar.gz file
+            if ! tar -xzf "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" -C "$LOCAL_DOCROOT"; then
+                error "Failed to extract tar.gz archive"
+            fi
+        elif [[ "$REMOTE_ARCHIVE_FILE" == *.tar ]]; then
+            # Extract tar file (uncompressed)
+            if ! tar -xf "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" -C "$LOCAL_DOCROOT"; then
+                error "Failed to extract tar archive"
+            fi
+        elif [[ "$REMOTE_ARCHIVE_FILE" == *.zip ]]; then
+            # Extract zip file
+            if ! unzip -o "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE" -d "$LOCAL_DOCROOT"; then
+                error "Failed to extract zip archive"
+            fi
+        else
+            error "Unsupported archive format: $REMOTE_ARCHIVE_FILE"
+        fi
+        info "Archive extraction completed"
+        info "Cleaning up archive file..."
+        rm -f "$HOME/tmp/archives/$REMOTE_ARCHIVE_FILE"
+        info "Archive file cleaned up"
+    else
+        error "Remote operation failed: $RESPONSE"
+    fi
+    
+    return 0
+}
+
+cleanup_remote_files() {
+    local files=("$@")
+    local ftp_commands=""
+    
+    for file in "${files[@]}"; do
+        ftp_commands+="rm $file"$'\n'
+    done
+
+    # Try to clean up files but don't fail if it doesn't work
+    if ! lftp -u "$FTP_USER","$FTP_PASS" "$FTP_HOST" <<EOF
+set ssl:verify-certificate no
+cd $REMOTE_FTP_PATH
+$ftp_commands
+bye
+EOF
+    then
+        error "Failed to clean up some remote files, but continuing anyway"
+    else
+        info "Remote files cleaned up successfully"
+    fi
+    
+    return 0
+}
+
+import_database() {
+    info "Updating DEFINER clauses to use local database user..."
+    sed -i "s/DEFINER=\`[^\`]*\`@\`[^\`]*\`/DEFINER=\`$LOCAL_DB_USER\`@\`localhost\`/g" "$LOCAL_SQL_FILE"
+
+    info "Importing database..."
+    if mysql -h "$LOCAL_DB_HOST" -u"$LOCAL_DB_USER" -p"$LOCAL_DB_PASS" "$LOCAL_DB_NAME" --default-character-set=utf8mb4 < "$LOCAL_SQL_FILE"; then
+        info "Database imported successfully"
+        rm -f "$LOCAL_SQL_FILE"
+    else
+        error "Database import failed. SQL dump retained at $LOCAL_SQL_FILE"
+    fi
+}
+
+# === WordPress File Permissions ===
+set_wordpress_permissions() {
+    info "Setting WordPress file permissions..."
+    
+    # Set directory permissions to 755
+    if ! find "$LOCAL_DOCROOT" -type d -exec chmod 755 {} \; 2>/dev/null; then
+        warn "Some directory permissions could not be set"
+    fi
+    
+    # Set file permissions to 644
+    if ! find "$LOCAL_DOCROOT" -type f -exec chmod 644 {} \; 2>/dev/null; then
+        warn "Some file permissions could not be set"
+    fi
+    
+    # Special permissions for wp-config.php
+    if [[ -f "$LOCAL_DOCROOT/wp-config.php" ]]; then
+        if ! chmod 600 "$LOCAL_DOCROOT/wp-config.php"; then
+            warn "Could not set permissions on wp-config.php"
+        fi
+    fi
+    
+    # Special permissions for uploads directory
+    if [[ -d "$LOCAL_DOCROOT/wp-content/uploads" ]]; then
+        if ! chmod 755 "$LOCAL_DOCROOT/wp-content/uploads"; then
+            warn "Could not set permissions on uploads directory"
+        fi
+        # Set uploads files to 644
+        if ! find "$LOCAL_DOCROOT/wp-content/uploads" -type f -exec chmod 644 {} \; 2>/dev/null; then
+            warn "Some uploads file permissions could not be set"
+        fi
+    fi
+    
+    # Special permissions for cache directories
+    local cache_dirs=(
+        "wp-content/cache"
+        "wp-content/upgrade"
+        "wp-content/backup-db"
+        "wp-content/backups"
+        "wp-content/wp-cache-config.php"
+        "wp-content/advanced-cache.php"
+    )
+    
+    for dir in "${cache_dirs[@]}"; do
+        if [[ -e "$LOCAL_DOCROOT/$dir" ]]; then
+            if [[ -d "$LOCAL_DOCROOT/$dir" ]]; then
+                if ! chmod 755 "$LOCAL_DOCROOT/$dir"; then
+                    warn "Could not set permissions on $dir"
+                fi
+            else
+                if ! chmod 644 "$LOCAL_DOCROOT/$dir"; then
+                    warn "Could not set permissions on $dir"
+                fi
+            fi
+        fi
+    done
+    
+    info "WordPress permissions set successfully"
+}
+
+# === Update WordPress character set settings ===
+update_wordpress_charset() {
+    info "Updating WordPress character set settings..."
+    
+    # Update database charset and collation
+    mysql -h "$LOCAL_DB_HOST" -u"$LOCAL_DB_USER" -p"$LOCAL_DB_PASS" "$LOCAL_DB_NAME" -e "ALTER DATABASE \`$LOCAL_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    
+    # Update wp-config.php charset settings
+    if [[ -f "$LOCAL_DOCROOT/wp-config.php" ]]; then
+        sed -i "s/define( 'DB_CHARSET', '.*' );/define( 'DB_CHARSET', 'utf8mb4' );/" "$LOCAL_DOCROOT/wp-config.php"
+        sed -i "s/define( 'DB_COLLATE', '.*' );/define( 'DB_COLLATE', 'utf8mb4_unicode_ci' );/" "$LOCAL_DOCROOT/wp-config.php"
+    fi
+    
+    info "WordPress character set settings updated successfully"
+}
+
+# === Operation mode selection ===
+echo "Select operation mode:"
+echo "=== WITH COMPRESSION (better for slower internet) ==="
+echo "1 - Quick migration (excluding backups. NB: run backup folder import after this)"
+echo "2 - Database migration only"
+echo "3 - Files migration only (excluding backups)"
+echo "4 - Backup folders import only"
+echo "5 - Full migration (including backups. Takes longer)"
+echo "6 - Fix Wordpress permissions"
+echo ""
+echo "=== WITHOUT COMPRESSION (better for faster internet) ==="
+echo "7 - Quick migration without compression (excluding backups)"
+echo "8 - Files migration only without compression (excluding backups)"
+echo "9 - Full migration without compression (including backups. Takes longer)"
+read -rp "Enter choice [1-9]: " mode
+
+# === Time formatting function ===
+format_time() {
+    local total_seconds=$1
+    local minutes=$((total_seconds / 60))
+    local seconds=$((total_seconds % 60))
+    
+    if [ $minutes -eq 0 ]; then
+        echo "${seconds} seconds"
+    elif [ $seconds -eq 0 ]; then
+        echo "${minutes} minutes"
+    else
+        echo "${minutes} minutes ${seconds} seconds"
+    fi
+}
+
+# === Time tracking ===
+SECONDS=0
+
+case "$mode" in
+    1)
+        # Quick migration (files + database, no backups)
+        info "Starting quick migration..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "nobackups" "true"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        handle_database_dump
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE" "$REMOTE_SQL_FILE"
+        import_database
+        update_wordpress_charset
+        
+        # Update paths
+        update_file_paths
+        update_database_paths
+        
+        info "Quick migration completed in $(format_time $SECONDS)"
+        ;;
+    2)
+        # Database migration only
+        info "Starting database migration..."
+        
+        get_remote_docroot
+        handle_database_dump
+        cleanup_remote_files "$REMOTE_SQL_FILE"
+        import_database
+
+        # Update paths
+        update_database_paths
+        
+        info "Database migration took $(format_time $SECONDS)"
+        ;;
+    3)
+        # Files migration only (excluding backups)
+        info "Starting files migration..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "nobackups" "true"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE"
+        
+        # Update file paths
+        update_file_paths
+        
+        info "File migration (without backups) took $(format_time $SECONDS)"
+        ;;
+    4)
+        # Backup folders sync only
+        info "Starting backup folders sync..."
+        
+        handle_file_backup "backups" "true"
+        
+        info "Backup sync took $(format_time $SECONDS)"
+        ;;
+    5)
+        # Full migration (including backups)
+        info "Starting full migration..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "full" "true"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        handle_database_dump
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE" "$REMOTE_SQL_FILE"
+        import_database
+        
+        # Update paths
+        update_file_paths
+        update_database_paths
+        
+        info "Complete migration (including backups) took $(format_time $SECONDS)"
+        ;;
+    6)
+        set_wordpress_permissions
+        info "WordPress permissions set successfully in $(format_time $SECONDS)"
+        ;;
+    7)
+        # Quick migration without compression (files + database, no backups)
+        info "Starting quick migration without compression..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "nobackups" "false"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        handle_database_dump
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE" "$REMOTE_SQL_FILE"
+        import_database
+        update_wordpress_charset
+        
+        # Update paths
+        update_file_paths
+        update_database_paths
+        
+        info "Quick migration without compression completed in $(format_time $SECONDS)"
+        ;;
+    8)
+        # Files migration only without compression (excluding backups)
+        info "Starting files migration without compression..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "nobackups" "false"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE"
+        
+        # Update file paths
+        update_file_paths
+        
+        info "File migration without compression (without backups) took $(format_time $SECONDS)"
+        ;;
+    9)
+        # Full migration without compression (including backups)
+        info "Starting full migration without compression..."
+        delete_current_index_html
+        get_remote_docroot
+        handle_file_backup "full" "false"
+        update_wp_config "$LOCAL_DOCROOT/wp-config.php"
+        handle_database_dump
+        cleanup_remote_files "$REMOTE_ARCHIVE_FILE" "$REMOTE_SQL_FILE"
+        import_database
+        
+        # Update paths
+        update_file_paths
+        update_database_paths
+        
+        info "Complete migration without compression (including backups) took $(format_time $SECONDS)"
+        ;;
+    *)
+        error "Invalid choice"
+        ;;
+esac

@@ -1,0 +1,160 @@
+#!/bin/bash
+
+RED="\e[31m"
+GREEN="\e[32m"
+PURPLE="\e[35m"
+BLUE="\e[36m"
+RESET="\e[0m"
+
+domain=""
+
+deep_scan() {
+    clear
+    echo -e "Domain: ${PURPLE}$domain${RESET}"
+    echo
+
+    echo -e "${PURPLE} A ${RESET}"
+    echo -e "${PURPLE}---${BLUE}"
+    ip=$(dig +short $domain A)
+    if [ -n "$ip" ]; then
+      sleep 2
+      netname=$(whois "$ip" 2>/dev/null | awk 'tolower($1) == "netname:" {print $2; exit}' | tr -d '\r')
+      if [ -z "$netname" ]; then
+        netname="Location unknown"
+      fi
+    else
+      ip="Puudub"
+      netname="Location unknown"
+    fi
+    echo "$ip ($netname)"
+    echo
+
+    echo -e "${PURPLE} MX ${RESET}"
+    echo -e "${PURPLE}----${GREEN}"
+    dig +short $domain MX
+    echo
+
+    echo -e "${PURPLE} TXT ${RESET}"
+    echo -e "${PURPLE}-----${GREEN}"
+    dig +short $domain TXT
+    echo
+
+    echo -e "${PURPLE} ZONE DKIM ${RESET}"
+    echo -e "${PURPLE}-----------${GREEN}"
+    dig +short TXT zone._domainkey.$domain
+    echo
+
+    echo -e "${PURPLE} DMARC ${RESET}"
+    echo -e "${PURPLE}-------${GREEN}"
+    dig +short TXT _dmarc.$domain
+    echo
+
+    echo -e "${PURPLE} NS ${RESET}"
+    echo -e "${PURPLE}----${BLUE}"
+    dig +short $domain NS
+    echo
+
+    echo -e "${PURPLE} DNSSEC ${RESET}"
+    echo -e "${PURPLE}--------${GREEN}"
+    dig +dnssec @1.1.1.1 $domain A | grep -q "RRSIG"
+    if [ $? -eq 0 ]; then
+        echo "Active"
+    else
+        echo "Inactive"
+    fi
+    echo
+
+    echo -e "${PURPLE} CMS ${RESET}"
+    echo -e "${PURPLE}-----${GREEN}"
+
+    check_site() {
+        local proto=$1
+        status_code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" "$proto://$domain")
+        if [[ "$status_code" =~ ^2|3 ]]; then
+            echo "$proto"
+        else
+            echo ""
+        fi
+    }
+
+    protocol=$(check_site http)
+    if [ -z "$protocol" ]; then
+        protocol=$(check_site https)
+    fi
+
+    if [ -z "$protocol" ]; then
+        echo -e "${RED}Site down. Last status: $status_code${RESET}"
+    fi
+
+    headers=$(curl -sI "$protocol://$domain")
+    html=$(curl -sL --max-time 5 "$protocol://$domain")
+
+    if echo "$html" | grep -qi "wp-content"; then
+        echo "WordPress"
+    elif echo "$html" | grep -qi "Joomla!"; then
+        echo "Joomla"
+    elif echo "$html" | grep -qi "Drupal"; then
+        echo "Drupal"
+    elif echo "$html" | grep -qi "Shopify"; then
+        echo "Shopify"
+    elif echo "$html" | grep -qi "Magento"; then
+        echo "Magento"
+    elif echo "$html" | grep -qi "TYPO3"; then
+        echo "TYPO3"
+    elif echo "$html" | grep -qi "Squarespace"; then
+        echo "Squarespace"
+    elif echo "$html" | grep -qi "Wix.com"; then
+        echo "Wix"
+    elif echo "$html" | grep -qi "Ghost"; then
+        echo "Ghost"
+    else
+        echo -e "${RED}Unknown${RESET}"
+        server=$(echo "$headers" | grep -i "^Server:" | cut -d' ' -f2-)
+        if [ -n "$server" ]; then
+            echo "Web server: $server"
+            if echo "$server" | grep -qi "apache"; then
+                echo -e "${GREEN}Apache${RESET}"
+            elif echo "$server" | grep -qi "nginx"; then
+                echo -e "${GREEN}Nginx${RESET}"
+            fi
+        else
+            echo -e "${RED}May be using CDN or proxy${RESET}"
+        fi
+    fi
+
+    echo
+
+    echo -e "${PURPLE} SUBDOMAINS ${RESET}"
+    echo -e "${PURPLE}------------${GREEN}"
+
+    curl -s "https://crt.sh/?q=%25.$domain&output=json" | \
+    grep -oP '"name_value":"\K[^"]+' | \
+    sed 's/\\n/\n/g' | \
+    sed 's/\*\.//g' | \
+    sort -u | \
+    grep "\.$domain$"
+    echo
+
+    echo -e "${PURPLE} PORTS ${RESET}"
+    echo -e "${PURPLE}-------${GREEN}"
+    timeout 10 nmap -sV "$domain" -v | grep -oP '\d+(?=/tcp)'
+    echo
+}
+
+while getopts "d:" opt; do
+    case $opt in
+        d)
+            domain=$OPTARG
+            ;;
+        *)
+            echo -e "${RED}Usage: $0 [-d domain]${RESET}"
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$domain" ]; then
+    read -p "Domain: " domain
+fi
+
+deep_scan

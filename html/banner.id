@@ -1,0 +1,28 @@
+#!/bin/bash
+SCRIPT_ID="$1"
+
+# --- SCRIPT BANNER ---
+# SETTINGS
+BOX_WIDTH=50
+CONTENT_WIDTH=$((BOX_WIDTH - 2))
+
+# MATH
+STR_LEN=${#SCRIPT_ID}
+if [ $STR_LEN -ge $CONTENT_WIDTH ]; then
+    CONTENT="${SCRIPT_ID:0:$CONTENT_WIDTH}"
+else
+    TOTAL_PADDING=$((CONTENT_WIDTH - STR_LEN))
+    LEFT_PADDING=$((TOTAL_PADDING / 2))
+    RIGHT_PADDING=$((TOTAL_PADDING - LEFT_PADDING - 1))  # remove 1 space on the right
+
+    LEFT_SPACES=$(printf '%*s' "$LEFT_PADDING" '')
+    RIGHT_SPACES=$(printf '%*s' "$RIGHT_PADDING" '')
+
+    CONTENT="$LEFT_SPACES$SCRIPT_ID$RIGHT_SPACES"
+fi
+
+# PRINT BANNER
+echo "┌─────────────────────═━┈━═─────────────────────┐"
+echo "│$CONTENT│"
+echo "└─────────────────────═━┈━═─────────────────────┘"
+echo

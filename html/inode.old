@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# --- VÄRVID ---
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[1;32m'
+CYAN='\033[1;36m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# --- Inode kasutus ---
+echo -e "\n${BOLD}Inode kasutus:${RESET}"
+
+quota_output=$(quota -s 2>/dev/null)
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Quota käsk ebaõnnestus või pole saadaval.${RESET}"
+else
+    inode_info=$(echo "$quota_output" | awk 'NR==3 {print $5, $6}')
+    read -r used limit_raw <<< "$inode_info"
+
+    # Protsendi arvutamiseks teisendame limit_raw numbriliseks
+    if [[ "$limit_raw" =~ ^([0-9]+)k$ ]]; then
+        limit_num=$(( ${BASH_REMATCH[1]} * 1024 ))
+    else
+        limit_num=$limit_raw
+    fi
+
+    percent=$(awk -v u="$used" -v l="$limit_num" 'BEGIN {printf "%.0f", (u/l)*100}')
+
+    # Värvide määramine protsendi põhjal
+    if [ "$percent" -ge 90 ]; then
+        color=$RED
+    elif [ "$percent" -ge 70 ]; then
+        color=$YELLOW
+    else
+        color=$GREEN
+    fi
+
+    echo -e "Kasutusel inoded: ${color}${used}${RESET} (limiit: ${limit_raw})"
+fi
+
+# --- Inode jagunemine jooksvas kataloogis ---
+echo -e "\n${BOLD}Inodede jagunemine kaustades (top 10):${RESET}"
+
+topdirs=$(find . -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \
+    xargs -I{} bash -c 'echo $(find "{}" 2>/dev/null | wc -l) "{}"' | \
+    sort -nr | head -10)
+
+if [ -z "$topdirs" ]; then
+    echo -e "${YELLOW}Pole alamkatalooge või pole ligipääsu.${RESET}"
+else
+    echo "$topdirs" | awk -v RED="$RED" -v YELLOW="$YELLOW" -v GREEN="$GREEN" -v RESET="$RESET" '
+    {
+        count=$1;
+        dir=$2;
+        color=GREEN;
+        if (count >= 30000) color=RED;
+        else if (count >= 10000) color=YELLOW;
+        printf " %s%6d%s %s\n", color, count, RESET, dir;
+    }'
+fi
+
+# --- Sügavam jagunemine suurtes kaustades ---
+echo -e "\n${BOLD}Jagunemine kaustades:${RESET}"
+
+echo "$topdirs" | while read count dir; do
+    if [ "$count" -gt 30000 ]; then
+        echo -e "\n${CYAN}$(basename "$dir") kausta jagunemine:${RESET}"
+        find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \
+        xargs -I{} bash -c 'echo $(find "{}" 2>/dev/null | wc -l) "{}"' | \
+        sort -nr | head -10 | \
+        awk -v RED="$RED" -v YELLOW="$YELLOW" -v GREEN="$GREEN" -v RESET="$RESET" '
+        {
+            count=$1;
+            dir=$2;
+            color=GREEN;
+            if (count >= 30000) color=RED;
+            else if (count >= 10000) color=YELLOW;
+            printf " %s%6d%s %s\n", color, count, RESET, dir;
+        }'
+    fi
+done

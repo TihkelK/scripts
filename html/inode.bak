@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# --- VÄRVID ---
+RED='\033[1;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[1;32m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# --- Inode kasutus ---
+quota_output=$(quota -s 2>/dev/null)
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Quota käsk ebaõnnestus või pole saadaval.${RESET}"
+else
+    inode_info=$(echo "$quota_output" | awk 'NR==3 {print $5, $6}')
+    read -r used limit_raw <<< "$inode_info"
+
+    if [[ "$limit_raw" =~ ^([0-9]+)k$ ]]; then
+        limit_num=$(( ${BASH_REMATCH[1]} * 1024 ))
+    else
+        limit_num=$limit_raw
+    fi
+
+    # Protsentuaalne kasutus
+    percent=$(( used * 100 / limit_num ))
+
+    # Värv inode kasutuse järgi
+    if [ "$percent" -ge 80 ]; then
+        color=$RED
+    elif [ "$percent" -ge 50 ]; then
+        color=$YELLOW
+    else
+        color=$GREEN
+    fi
+
+    echo -e "${BOLD}Kasutusel inoded:${RESET} ${color}${used}${RESET} (limiit: ${limit_raw}, $percent%)"
+fi
+
+# --- Top 10 kaustad kodukaustas ---
+echo -e "\n${BOLD}~/ kausta jaotus (top 10):${RESET}"
+
+find . -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \
+xargs -I{} bash -c 'count=$(find "{}" 2>/dev/null | wc -l); echo $count "{}"' | \
+sort -nr | head -10 | \
+awk -v RED="$RED" -v YELLOW="$YELLOW" -v GREEN="$GREEN" -v RESET="$RESET" '
+{
+    count=$1; dir=$2;
+    color=GREEN;
+    if(count>=50000) color=RED;
+    else if(count>=10000) color=YELLOW;
+    printf " %s%6d%s %s\n", color, count, RESET, dir;
+}'
+
+# --- Domeenide alamkaustade top 10 ja koguarv ---
+if [ -d "./domeenid" ]; then
+    main_domains=$(find ./domeenid -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+    for domain in $main_domains; do
+        echo -e "\n${BOLD}$(basename "$domain") kausta jaotus (top 10):${RESET}"
+
+        # Alamkaustade top 10
+        find "$domain" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | \
+        xargs -I{} bash -c 'count=$(find "{}" 2>/dev/null | wc -l); echo $count "{}"' | \
+        sort -nr | head -10 | \
+        awk -v RED="$RED" -v YELLOW="$YELLOW" -v GREEN="$GREEN" -v RESET="$RESET" '
+        {
+            count=$1; dir=$2;
+            color=GREEN;
+            if(count>=50000) color=RED;
+            else if(count>=10000) color=YELLOW;
+            printf " %s%6d%s %s\n", color, count, RESET, dir;
+        }'
+
+        # --- Domeeni koguarv (värv) ---
+        total=$(find "$domain" -type f -o -type d 2>/dev/null | wc -l)
+        color=$GREEN
+        if [ "$total" -ge 50000 ]; then color=$RED
+        elif [ "$total" -ge 10000 ]; then color=$YELLOW; fi
+        echo -e "\n${BOLD}./domeenid kausta jaotus:${RESET}"
+        echo -e " ${color}$total${RESET} $domain"
+    done
+fi

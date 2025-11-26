@@ -1,0 +1,770 @@
+#!/bin/bash
+clear
+set -euo pipefail
+
+# --- DEFAULTS ---
+# ZONE CONF
+WWWDOMAIN="$(ls domeenid | head -n 1)"
+DOMAIN="${WWWDOMAIN#www.}"
+LOCAL_DOCROOT="$(pwd)/domeenid/$DOMAIN/htdocs"
+LOCAL_DB_HOST="$(mysql --print-defaults | grep -o -- '--host=[^ ]*' | cut -d= -f2)"
+LOCAL_DB_NAME="${LOCAL_DB_HOST%%.*}_htdocs"
+LOCAL_DB_USER="${LOCAL_DB_NAME}user"
+LOCAL_DB_PASS="$(openssl rand -base64 12)"
+# REMOTE CONF
+SSH_USER=""
+SSH_HOST=""
+SSH_PORT=22
+AUTH_METHOD=""
+SSH_KEY_PATH=""
+SSH_PASS=""
+REMOTE_DOCROOT=""
+REMOTE_SITE_URL="https://$DOMAIN"
+LOCAL_SITE_URL="https://$DOMAIN"
+
+# --- PARAMS ---
+while getopts "u:h:P:a:k:p:r:s:l:z:" opt; do
+    case $opt in
+        u) SSH_USER="$OPTARG" ;;
+        h) SSH_HOST="$OPTARG" ;;
+        P) SSH_PORT="$OPTARG" ;;
+        a) AUTH_METHOD="${OPTARG,,}" ;; # lowercase
+        k) SSH_KEY_PATH="$OPTARG" ;;
+        p) SSH_PASS="$OPTARG" ;;
+        r) REMOTE_DOCROOT="$OPTARG" ;;
+        s) REMOTE_SITE_URL="$OPTARG" ;;
+        l) LOCAL_SITE_URL="$OPTARG" ;;
+        z) LOCAL_DOCROOT="$OPTARG" ;;
+    esac
+done
+
+# --- CHECK REQUIRED PARAMS ---
+check_missing_required() {
+    local missing=()
+    [[ -z "$SSH_USER" ]] && missing+=("-u SSH user")
+    [[ -z "$SSH_HOST" ]] && missing+=("-h SSH host/IP")
+    [[ -z "$AUTH_METHOD" ]] && missing+=("-a Auth method (key/pass)")
+    [[ -z "$REMOTE_DOCROOT" ]] && missing+=("-r Remote document root")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Error: Missing required parameters:"
+        for param in "${missing[@]}"; do
+            echo "  $param"
+        done
+        return 1
+    fi
+    return 0
+}
+if ! check_missing_required; then
+    exit 1
+else
+    echo "Continuing SSH migration with:"
+    echo "  USER: $SSH_USER"
+    echo "  HOST: $SSH_HOST"
+    echo "  AUTH: $AUTH_METHOD"
+    echo "  R_DOCROOT: $REMOTE_DOCROOT"
+fi
+
+
+
+# --- CHECK OPTIONAL PARAMS ---
+optional_missing=()
+[[ "$REMOTE_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-s Remote site URL (default: $REMOTE_SITE_URL)")
+[[ "$LOCAL_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-l Local site URL (default: $LOCAL_SITE_URL)")
+[[ "$LOCAL_DOCROOT" == "$(pwd)/domeenid/$WWWDOMAIN/htdocs" ]] && optional_missing+=("-z Zone doc root (default: $LOCAL_DOCROOT)")
+if [[ ${#optional_missing[@]} -gt 0 ]]; then
+    echo "Optional parameters not provided (using defaults):"
+    for param in "${optional_missing[@]}"; do
+        echo "  $param"
+    done
+    read -rp "Continue with defaults? (Y/n) " ans
+    ans=${ans:-Y}
+    if [[ ! "$ans" =~ ^[yY]$ ]]; then
+        echo "Aborting. Please rerun the script with the desired parameters."
+        exit 1
+    fi
+    echo "Continuing with defaults..."
+fi
+
+# --- AUTH SETUP (key/pass) ---
+if [[ "$AUTH_METHOD" == "key" ]]; then
+    if [[ -z "$SSH_KEY_PATH" ]]; then
+        SSH_KEY_PATH="$HOME/.ssh/${DOMAIN}_id_rsa"
+    fi
+    if [[ -f "$SSH_KEY_PATH" ]]; then
+        echo "$SSH_KEY_PATH already exists. Skipped since already exists."
+        echo "Copy the following public key to the remote server:"
+        echo
+        cat "${SSH_KEY_PATH}.pub"
+        echo
+        read -rp "(After adding press ENTER)"
+    else
+        echo "Generating new SSH key at $SSH_KEY_PATH ..."
+        ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_PATH" -N "" -q
+        echo "Copy the following public key to the remote server:"
+        echo
+        cat "${SSH_KEY_PATH}.pub"
+        echo
+        read -rp "(After adding press ENTER)"
+    fi
+    SSH_PASS=""
+elif [[ "$AUTH_METHOD" == "pass" ]]; then
+    [[ -z "$SSH_PASS" ]] && { echo "Error: SSH password required (-p)"; exit 1; }
+    SSH_KEY_PATH=""
+else
+    echo "Error: Auth method must be 'key' or 'pass'"
+    exit 1
+fi
+echo
+
+# --- DATABASE SETUP ---
+if [[ "$(basename "$LOCAL_DOCROOT")" != "htdocs" ]]; then
+    SUBDOMAIN=$(basename "$LOCAL_DOCROOT")
+    LOCAL_DB_NAME="${LOCAL_DB_HOST%%.*}_${SUBDOMAIN}"
+    LOCAL_DB_USER="${LOCAL_DB_NAME}user"
+fi
+echo "Make a new database and user in My Zone with following data:"
+echo
+cat <<EOF
+DATABASE: $LOCAL_DB_NAME
+USER: $LOCAL_DB_USER
+PASSWORD: $LOCAL_DB_PASS
+EOF
+echo
+read -rp "(When done press ENTER to start)"
+echo
+
+
+
+##! DO NOT CHANGE AFTER THIS LINE
+# === File names and temporary files ===
+# Generate unique identifier based on script name and timestamp
+SCRIPT_NAME=$(basename "$0" .sh)
+MIGRATION_ID="${SCRIPT_NAME}_$(date +%s)_$RANDOM"
+# === Temporary files ===
+REMOTE_TMP_SQL="/tmp/wp_remote_dump_${MIGRATION_ID}.sql"
+LOCAL_SQL_FILE="$HOME/tmp/wp_dump_${MIGRATION_ID}.sql"
+WP_CONFIG="$LOCAL_DOCROOT/wp-config.php"
+
+# === Logging functions ===
+log() {
+    local level="$1"
+    shift
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$level] [$MIGRATION_ID] $*"
+}
+
+info() { log "INFO" "$@"; }
+warn() { log "WARN" "$@"; }
+error() { log "ERROR" "$@"; exit 1; }
+
+# === Check required tools ===
+check_requirements() {
+    local tools=("mysql" "mysqldump" "rsync" "wp" "sed" "awk")
+    
+    for tool in "${tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            error "Required tool '$tool' is not installed"
+        fi
+    done
+
+    if [[ -n "${SSH_PASS:-}" ]] && ! command -v sshpass &> /dev/null; then
+        error "sshpass is required for password authentication but not installed"
+    fi
+}
+
+# === Database Operations ===
+verify_mysql_connection() {
+    local host=$1 user=$2 pass=$3 db=$4
+    if ! mysql -h "$host" -u"$user" -p"$pass" -e "USE $db" &>/dev/null; then
+        error "Failed to connect to MySQL database: $db on $host"
+    fi
+}
+
+import_database() {
+    local host=$1 user=$2 pass=$3 db=$4 input=$5
+    if ! mysql -h "$host" -u"$user" -p"$pass" "$db" --default-character-set=utf8mb4 < "$input"; then
+        error "Failed to import database"
+    fi
+}
+
+delete_current_index_html() {
+    info "Deleting current index.html file..."
+    if [ -f "$LOCAL_DOCROOT/index.html" ]; then
+        if ! rm -f "$LOCAL_DOCROOT/index.html"; then
+            warn "Failed to delete index.html file"
+        else
+            info "index.html was deleted"
+        fi
+    else
+        info "There was no index.html file to delete"
+    fi
+}
+
+# === Rsync Operations ===
+run_rsync() {
+    local source=$1 dest=$2 ssh_opts=$3
+    local exclude_backups=${4:-false}
+    
+    local rsync_opts=(
+        -avz
+        --progress
+        --stats
+        --checksum
+        --partial
+        --partial-dir=.rsync-partial-${MIGRATION_ID}
+        --exclude='wp-content/cache/'
+        --exclude='wp-content/debug.log'
+        --exclude='elkdata_redirect_http_to_https_301'
+        --exclude='elkdata_redirect_http_to_https_302'
+        --exclude='elkdata_redirect_www_to_nonwww_301'
+        --exclude='elkdata_redirect_www_to_nonwww_302'
+        --exclude='elkdata_redirect_nonwww_to_www_301'
+        --exclude='elkdata_redirect_nonwww_to_www_302'
+        --exclude='error_log'
+        --timeout=60
+    )
+
+    # Add backup exclusions if requested
+    if [[ "$exclude_backups" == "true" ]]; then
+        rsync_opts+=(
+            --exclude='wp-content/ai1wm-backups/'
+            --exclude='wp-content/backups-dup-lite/'
+            --exclude='wp-content/backups-dup-pro/'
+            --exclude='wp-content/updraft/'
+            --exclude='wp-content/wpvividbackups/'
+            --exclude='wp-content/uploads/backwpup/'
+            --exclude='wp-content/uploads/db-backup/'
+            --exclude='wp-content/uploads/wp-staging/backups/'
+        )
+    fi
+    
+    # Test SSH connection first
+    info "Testing SSH connection..."
+    if ! eval "$ssh_opts $SSH_USER@$SSH_HOST 'echo SSH connection successful'"; then
+        error "SSH connection test failed. Please check your credentials and connection."
+    fi
+    
+    # Create state file for this transfer with unique identifier
+    local state_file="$HOME/tmp/wp_migrate_${MIGRATION_ID}_rsync_${exclude_backups}_started"
+    touch "$state_file"
+
+    info "Starting rsync with options: ${rsync_opts[*]}"
+    
+    # Handle password authentication for rsync
+    if [[ -n "${SSH_PASS:-}" ]]; then
+        export SSHPASS="$SSH_PASS"
+        if ! SSHPASS="$SSH_PASS" sshpass -e rsync "${rsync_opts[@]}" -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" "$source" "$dest"; then
+            warn "Rsync operation failed. To resume, run the script again."
+            exit 1
+        fi
+    else
+        # Regular rsync with SSH key or default authentication
+        if ! rsync "${rsync_opts[@]}" -e "$ssh_opts" "$source" "$dest"; then
+            warn "Rsync operation failed. To resume, run the script again."
+            exit 1
+        fi
+    fi
+
+    # Mark this operation as complete
+    mv "$state_file" "${state_file%_started}_completed"
+}
+
+run_backup_sync() {
+    info "Syncing backup folders..."
+    
+    RSYNC_SOURCE="$SSH_USER@$SSH_HOST:$REMOTE_DOCROOT/"
+    RSYNC_DEST="$LOCAL_DOCROOT/"
+    
+    local ssh_cmd
+    if [[ -n "${SSH_KEY_PATH:-}" ]] && [[ -f "$SSH_KEY_PATH" ]]; then
+        check_ssh_key_permissions
+        ssh_cmd="ssh -p $SSH_PORT -i $SSH_KEY_PATH -o StrictHostKeyChecking=no"
+    elif [[ -n "${SSH_PASS:-}" ]]; then
+        ssh_cmd="sshpass -p $SSH_PASS ssh -p $SSH_PORT"
+    else
+        ssh_cmd="ssh -p $SSH_PORT"
+    fi
+
+    local rsync_opts=(
+        -avz
+        --progress
+        --stats
+        --relative
+    )
+
+    # Sync each backup directory separately
+    local backup_dirs=(
+        "./wp-content/ai1wm-backups/"
+        "./wp-content/backups-dup-lite/"
+        "./wp-content/backups-dup-pro/"
+        "./wp-content/updraft/"
+        "./wp-content/uploads/db-backup/"
+        "./wp-content/uploads/wp-staging/backups/"
+    )
+
+    for dir in "${backup_dirs[@]}"; do
+        info "Syncing $dir..."
+        # First check if directory exists on remote
+        if ! eval "$ssh_cmd $SSH_USER@$SSH_HOST '[ -d \"$REMOTE_DOCROOT/$dir\" ]'" > /dev/null 2>&1; then
+            info "Directory $dir not found on remote server - skipping (this is normal if no backups exist in this location)"
+            continue
+        fi
+        
+        if ! rsync "${rsync_opts[@]}" -e "$ssh_cmd" "$SSH_USER@$SSH_HOST:$REMOTE_DOCROOT/$dir" "$LOCAL_DOCROOT"; then
+            warn "Error occurred while syncing $dir"
+        fi
+    done
+}
+
+# === .htaccess cPanel config cleanup ===
+cleanup_cpanel_config_from_htaccess() {
+    info "Checking .htaccess file for cPanel configuration..."
+    
+    local htaccess_file="$LOCAL_DOCROOT/.htaccess"
+    
+    if [[ ! -f "$htaccess_file" ]]; then
+        info "No .htaccess file found - skipping cleanup"
+        return 0
+    fi
+    
+    # Check if cPanel configuration exists in .htaccess
+    if ! grep -q "^# php -- BEGIN cPanel-generated handler, do not edit$" "$htaccess_file"; then
+        info "No cPanel configuration found in .htaccess - skipping cleanup"
+        return 0
+    fi
+    
+    info "cPanel configuration found in .htaccess - creating backup and cleaning up..."
+    
+    # Create backup of original .htaccess
+    local backup_file="${htaccess_file}.backup.$(date +%s)"
+    if ! cp "$htaccess_file" "$backup_file"; then
+        warn "Failed to create backup of .htaccess file"
+    else
+        info "Created backup of .htaccess: $backup_file"
+    fi
+    
+    # Remove cPanel-generated PHP handler section
+    # This pattern matches the entire section from "# php -- BEGIN cPanel-generated handler" 
+    # to "# php -- END cPanel-generated handler" including the content in between
+    if ! sed -i '/^# php -- BEGIN cPanel-generated handler, do not edit$/,/^# php -- END cPanel-generated handler, do not edit$/d' "$htaccess_file"; then
+        warn "Failed to remove cPanel PHP handler section from .htaccess"
+        return 1
+    fi
+    
+    # Remove any empty lines that might be left after the deletion
+    if ! sed -i '/^[[:space:]]*$/d' "$htaccess_file"; then
+        warn "Failed to clean up empty lines in .htaccess"
+    fi
+    
+    info "Successfully cleaned up cPanel config from .htaccess file"
+    return 0
+}
+
+run_rsync_and_file_path_fix() {
+    info "Running rsync and file path fix..."
+    
+    RSYNC_SOURCE="$SSH_USER@$SSH_HOST:$REMOTE_DOCROOT/"
+    RSYNC_DEST="$LOCAL_DOCROOT"
+    
+    local ssh_cmd
+    if [[ -n "${SSH_KEY_PATH:-}" ]] && [[ -f "$SSH_KEY_PATH" ]]; then
+        check_ssh_key_permissions
+        info "Using SSH key authentication"
+        ssh_cmd="ssh -p $SSH_PORT -i $SSH_KEY_PATH -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=60"
+    elif [[ -n "${SSH_PASS:-}" ]]; then
+        info "Using password authentication (keyboard-interactive)"
+        export SSHPASS="$SSH_PASS"
+        ssh_cmd="sshpass -e ssh -p $SSH_PORT -o PreferredAuthentications=keyboard-interactive,password -o ConnectTimeout=30 -o ServerAliveInterval=60 -o StrictHostKeyChecking=no"
+    else
+        info "Using default SSH authentication"
+        ssh_cmd="ssh -p $SSH_PORT -o ConnectTimeout=30 -o ServerAliveInterval=60"
+    fi
+
+    # Add debug output
+    info "Testing basic SSH connection..."
+    if ! eval "$ssh_cmd $SSH_USER@$SSH_HOST 'echo Current directory: \$(pwd)'"; then
+        error "Basic SSH connection failed"
+    fi
+
+    # Verify remote directory exists and is accessible
+    info "Verifying remote directory access..."
+    if ! eval "$ssh_cmd $SSH_USER@$SSH_HOST 'cd \"$REMOTE_DOCROOT\" && pwd'"; then
+        error "Cannot access remote directory: $REMOTE_DOCROOT"
+    fi
+
+    info "Starting rsync..."
+    run_rsync "$RSYNC_SOURCE" "$RSYNC_DEST" "$ssh_cmd" "true"  # Exclude backups
+
+    info "Running sed path replacement on WordPress files..."
+    
+    # Generate unique temporary file name
+    local temp_file="/tmp/old_path_files_$(date +%s)_$$.txt"
+    
+    info "Scanning for files containing old path: $REMOTE_DOCROOT"
+    
+    # Find files containing old path with comprehensive exclusions using your optimized syntax
+    if ! grep -irl --exclude=*{\.log,log_errors,\.sql,\.gz,\.zip,\.tar,\.tgz,\.rar,\.7z,\.bz2,\.bak,\.wpress,\.exe,\.avi,\.mov,\.mp[0-9],\.mpg,\.mpeg,\.ts,\.mts,\.m2ts,\.webm,\.f4v,\.flv,\.mkv,\.m4v,\.wav,\.tif,\.pdf,\.psd,\.iso,\.mxf,\.j0[0-9],\.jpg,\.jpeg,\.png,\.gif,\.bmp,\.tiff,\.ico,\.svg,\.webp,\.heic,\.heif,\.raw,\.cr2,\.nef,\.arw,\.dng,\.orf,\.rw2,\.pef,\.srw,\.x3f,\.bin,\.dll,\.so,\.dylib,\.app,\.deb,\.rpm,\.msi,\.dmg,\.pkg,\.apk,\.ipa,\.war,\.ear,\.jar,\.class,\.pyc,\.pyo,\.o,\.a,\.lib,\.obj,\.com,\.bat,\.cmd,\.scr,\.pif,\.lnk,\.url,\.woff,\.woff2,\.ttf,\.otf,\.eot} --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=logs --exclude-dir=cache --exclude-dir=tmp --exclude-dir=temp "$REMOTE_DOCROOT" "$LOCAL_DOCROOT" > "$temp_file" 2>/dev/null; then
+        warn "No files found containing old path, or grep scan failed"
+        rm -f "$temp_file"
+    else
+        # Count files found
+        local file_count=$(wc -l < "$temp_file" 2>/dev/null || echo "0")
+        info "Found $file_count files containing old path"
+        
+        if [[ "$file_count" -gt 0 ]]; then
+            info "Starting path replacement on $file_count files using single sed command..."
+            
+            # Run sed only ONCE on all files that contain the old path - MUCH faster!
+            if sed -i "s|${REMOTE_DOCROOT}|${LOCAL_DOCROOT}|g" $(cat "$temp_file") 2>/dev/null; then
+                info "Path replacement completed successfully on all $file_count files"
+            else
+                warn "Some files could not be processed, trying individual file processing..."
+                # Fallback to individual processing if batch fails
+                local processed=0
+                while IFS= read -r file; do
+                    if [[ -f "$file" ]]; then
+                        if sed -i "s|${REMOTE_DOCROOT}|${LOCAL_DOCROOT}|g" "$file" 2>/dev/null; then
+                            ((processed++))
+                        fi
+                    fi
+                done < "$temp_file"
+                info "Path replacement completed on $processed files"
+            fi
+        else
+            info "No files need path replacement"
+        fi
+        
+        # Clean up temporary file
+        rm -f "$temp_file"
+    fi
+    
+    # Clean up .htaccess file
+    cleanup_cpanel_config_from_htaccess
+}
+
+run_database_tasks() {
+    info "Starting database migration..."
+    
+    # Verify local database connection first
+    verify_mysql_connection "$LOCAL_DB_HOST" "$LOCAL_DB_USER" "$LOCAL_DB_PASS" "$LOCAL_DB_NAME"
+    
+    # Get remote WordPress config with better error handling
+    info "Extracting remote database credentials..."
+    local remote_db_info
+    remote_db_info=$(run_ssh "REMOTE_DOCROOT='$REMOTE_DOCROOT' REMOTE_TMP_SQL='$REMOTE_TMP_SQL' bash" <<'EOF'
+        set -euo pipefail
+        cd "$REMOTE_DOCROOT"
+        [[ ! -f wp-config.php ]] && echo "❌ wp-config.php not found" >&2 && exit 1
+        
+        # Simpler credential extraction that matches the working script
+        DB_NAME=$(grep DB_NAME wp-config.php | sed -E "s/.*['\"]DB_NAME['\"], *['\"]([^'\"]+)['\"].*/\1/")
+        DB_USER=$(grep DB_USER wp-config.php | sed -E "s/.*['\"]DB_USER['\"], *['\"]([^'\"]+)['\"].*/\1/")
+        DB_PASS=$(grep DB_PASSWORD wp-config.php | sed -E "s/.*['\"]DB_PASSWORD['\"], *['\"]([^'\"]+)['\"].*/\1/")
+        DB_HOST=$(grep DB_HOST wp-config.php | sed -E "s/.*['\"]DB_HOST['\"], *['\"]([^'\"]+)['\"].*/\1/")
+        
+        [[ -z "$DB_NAME" || -z "$DB_USER" || -z "$DB_PASS" || -z "$DB_HOST" ]] && {
+            echo "❌ Failed to extract database credentials from wp-config.php" >&2
+            exit 1
+        }
+        
+        # Debug output
+        echo "🛢️ Extracted credentials:" >&2
+        echo "🛢️ DB_HOST='$DB_HOST'" >&2
+        echo "🛢️ DB_NAME='$DB_NAME'" >&2
+        echo "🛢️ DB_USER='$DB_USER'" >&2
+        
+        # Create dump
+        echo "🛢️ Creating dump..." >&2
+        DB_HOST_RAW="$DB_HOST"
+        if [[ "$DB_HOST_RAW" == *:* ]]; then
+            DB_HOST="${DB_HOST_RAW%%:*}"
+            DB_PORT="${DB_HOST_RAW##*:}"
+        else
+            DB_HOST="$DB_HOST_RAW"
+            DB_PORT=3306
+        fi
+        mysqldump --single-transaction --lock-tables --routines --triggers --events --default-character-set=utf8mb4 --protocol=TCP -h "$DB_HOST" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$REMOTE_TMP_SQL"
+EOF
+    ) || error "❌ Failed to extract remote database credentials"
+
+    info "Downloading SQL dump..."
+    run_scp "$SSH_USER@$SSH_HOST:$REMOTE_TMP_SQL" "$LOCAL_SQL_FILE"
+    
+    info "Cleaning up remote SQL dump..."
+    run_ssh "rm -f $REMOTE_TMP_SQL" || warn "Failed to clean up remote SQL dump"
+    
+    info "Updating DEFINER clauses to use local database user..."
+    sed -i "s/DEFINER=\`[^\`]*\`@\`[^\`]*\`/DEFINER=\`$LOCAL_DB_USER\`@\`localhost\`/g" "$LOCAL_SQL_FILE"
+    
+    info "Importing SQL into local database..."
+    import_database "$LOCAL_DB_HOST" "$LOCAL_DB_USER" "$LOCAL_DB_PASS" "$LOCAL_DB_NAME" "$LOCAL_SQL_FILE"
+    
+    # Clean up local temporary files
+    rm -f "$LOCAL_SQL_FILE" || warn "Failed to clean up local SQL dump"
+    
+    info "Updating wp-config.php..."
+    local config_updates=(
+        "s/define\s*([[:space:]]*['\"]DB_NAME['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_NAME', '$LOCAL_DB_NAME')/"
+        "s/define\s*([[:space:]]*['\"]DB_USER['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_USER', '$LOCAL_DB_USER')/"
+        "s/define\s*([[:space:]]*['\"]DB_PASSWORD['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_PASSWORD', '$LOCAL_DB_PASS')/"
+        "s/define\s*([[:space:]]*['\"]DB_HOST['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)/define('DB_HOST', '$LOCAL_DB_HOST')/"
+    )
+    
+    # Check and update WP_HOME if it exists
+    if grep -q "define.*WP_HOME" "$WP_CONFIG"; then
+        config_updates+=("s|define\s*([[:space:]]*['\"]WP_HOME['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('WP_HOME', '$LOCAL_SITE_URL')|")
+        info "WP_HOME constant found in wp-config.php - will update it"
+    else
+        info "WP_HOME constant not found in wp-config.php - skipping its update"
+    fi
+
+    # Check and update WP_SITEURL if it exists
+    if grep -q "define.*WP_SITEURL" "$WP_CONFIG"; then
+        config_updates+=("s|define\s*([[:space:]]*['\"]WP_SITEURL['\"][[:space:]]*,[[:space:]]*['\"][^'\"]*['\"][[:space:]]*)|define('WP_SITEURL', '$LOCAL_SITE_URL')|")
+        info "WP_SITEURL constant found in wp-config.php - will update it"
+    else
+        info "WP_SITEURL constant not found in wp-config.php - skipping its update"
+    fi
+
+    for update in "${config_updates[@]}"; do
+        if ! sed -i "$update" "$WP_CONFIG"; then
+            error "Failed to update wp-config.php"
+        fi
+    done
+    
+    # Update site URLs only if they differ
+    if [ "${REMOTE_SITE_URL}" != "${LOCAL_SITE_URL}" ]; then
+        if ! wp --path="${LOCAL_DOCROOT}" search-replace "${REMOTE_SITE_URL}" "${LOCAL_SITE_URL}" --report-changed-only --skip-columns=guid; then
+            error "Failed to update site URLs in database"
+        fi
+        info "Site URLs updated successfully"
+    else
+        info "Remote and local site URLs are identical - skipping URL update"
+    fi
+
+    # Update docroot paths
+    if ! wp --path="${LOCAL_DOCROOT}" search-replace "${REMOTE_DOCROOT}" "${LOCAL_DOCROOT}" --report-changed-only --skip-columns=guid; then
+        error "Failed to update paths in database"
+    fi
+    info "Database paths updated successfully"
+}
+
+# === SSH Helper Functions ===
+check_ssh_key_permissions() {
+    if [[ -n "${SSH_KEY_PATH:-}" ]] && [[ -f "$SSH_KEY_PATH" ]]; then
+        info "Checking SSH key permissions..."
+        local current_perms
+        current_perms=$(stat -c "%a" "$SSH_KEY_PATH")
+        if [[ "$current_perms" != "600" ]]; then
+            info "Setting correct permissions (600) on SSH key..."
+            if ! chmod 600 "$SSH_KEY_PATH"; then
+                error "Failed to set permissions on SSH key"
+            fi
+        fi
+    fi
+}
+
+run_ssh() {
+    if [[ -n "${SSH_PASS:-}" ]]; then
+        info "Using password authentication"
+        export SSHPASS="$SSH_PASS"
+        if ! sshpass -e ssh -o PreferredAuthentications=keyboard-interactive,password -o StrictHostKeyChecking=no -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "$@"; then
+            error "SSH connection failed. Please verify credentials and connection."
+        fi
+    elif [[ -n "${SSH_KEY_PATH:-}" ]]; then
+        check_ssh_key_permissions
+        info "Using SSH key authentication"
+        if ! ssh -i "$SSH_KEY_PATH" -p "$SSH_PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "$@"; then
+            error "SSH connection failed with key authentication"
+        fi
+    else
+        info "Using default SSH authentication"
+        if ! ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "$@"; then
+            error "SSH connection failed with default authentication"
+        fi
+    fi
+}
+
+run_scp() {
+    if [[ -n "${SSH_PASS:-}" ]]; then
+        info "Using password authentication"
+        export SSHPASS="$SSH_PASS"
+        if ! SSHPASS="$SSH_PASS" sshpass -e scp -o PreferredAuthentications=keyboard-interactive,password -o StrictHostKeyChecking=no -P "$SSH_PORT" "$@"; then
+            error "SCP transfer failed"
+        fi
+    elif [[ -n "${SSH_KEY_PATH:-}" ]]; then
+        check_ssh_key_permissions
+        info "Using SSH key authentication"
+        if ! scp -i "$SSH_KEY_PATH" -P "$SSH_PORT" -o StrictHostKeyChecking=no "$@"; then
+            error "SCP transfer failed with key authentication"
+        fi
+    else
+        info "Using default SSH authentication"
+        if ! scp -P "$SSH_PORT" "$@"; then
+            error "SCP transfer failed with default authentication"
+        fi
+    fi
+}
+
+cleanup_temp_files() {
+    info "Cleaning up temporary files for this migration..."
+    rm -f "$HOME/tmp/wp_migrate_${MIGRATION_ID}_"*
+    rm -rf "${LOCAL_DOCROOT}/.rsync-partial-${MIGRATION_ID}"
+}
+
+# === WordPress File Permissions ===
+set_wordpress_permissions() {
+    info "Setting WordPress file permissions..."
+    
+    # Set directory permissions to 755
+    if ! find "$LOCAL_DOCROOT" -type d -exec chmod 755 {} \; 2>/dev/null; then
+        warn "Some directory permissions could not be set"
+    fi
+    
+    # Set file permissions to 644
+    if ! find "$LOCAL_DOCROOT" -type f -exec chmod 644 {} \; 2>/dev/null; then
+        warn "Some file permissions could not be set"
+    fi
+    
+    # Special permissions for wp-config.php
+    if [[ -f "$WP_CONFIG" ]]; then
+        if ! chmod 600 "$WP_CONFIG"; then
+            warn "Could not set permissions on wp-config.php"
+        fi
+    fi
+    
+    # Special permissions for uploads directory
+    if [[ -d "$LOCAL_DOCROOT/wp-content/uploads" ]]; then
+        if ! chmod 755 "$LOCAL_DOCROOT/wp-content/uploads"; then
+            warn "Could not set permissions on uploads directory"
+        fi
+        # Set uploads files to 644
+        if ! find "$LOCAL_DOCROOT/wp-content/uploads" -type f -exec chmod 644 {} \; 2>/dev/null; then
+            warn "Some uploads file permissions could not be set"
+        fi
+    fi
+    
+    # Special permissions for cache directories
+    local cache_dirs=(
+        "wp-content/cache"
+        "wp-content/upgrade"
+        "wp-content/backup-db"
+        "wp-content/backups"
+        "wp-content/wp-cache-config.php"
+        "wp-content/advanced-cache.php"
+    )
+    
+    for dir in "${cache_dirs[@]}"; do
+        if [[ -e "$LOCAL_DOCROOT/$dir" ]]; then
+            if [[ -d "$LOCAL_DOCROOT/$dir" ]]; then
+                if ! chmod 755 "$LOCAL_DOCROOT/$dir"; then
+                    warn "Could not set permissions on $dir"
+                fi
+            else
+                if ! chmod 644 "$LOCAL_DOCROOT/$dir"; then
+                    warn "Could not set permissions on $dir"
+                fi
+            fi
+        fi
+    done
+    
+    info "WordPress permissions set successfully"
+}
+
+run_full_migration() {
+    info "Starting full migration (including backups)..."
+    
+    # First run rsync with file path fixes (excluding backups)
+    run_rsync_and_file_path_fix
+    
+    # Finally run database tasks
+    run_database_tasks
+    
+    # Then sync backup folders separately
+    run_backup_sync
+    
+}
+
+# === Time formatting function ===
+format_time() {
+    local total_seconds=$1
+    local minutes=$((total_seconds / 60))
+    local seconds=$((total_seconds % 60))
+    
+    if [ $minutes -eq 0 ]; then
+        echo "${seconds} seconds"
+    elif [ $seconds -eq 0 ]; then
+        echo "${minutes} minutes"
+    else
+        echo "${minutes} minutes ${seconds} seconds"
+    fi
+}
+
+main() {
+    # Clean up any stale temporary files for this specific migration at start
+    cleanup_temp_files
+
+    # Set up cleanup trap
+    trap cleanup_temp_files EXIT
+
+    # Check requirements first
+    check_requirements
+    
+    # Parse arguments
+    local mode
+    echo "Select operation mode:"
+    echo "1 - Quick migration (excluding backups. NB: run backup folder sync after this)"
+    echo "2 - Database migration only"
+    echo "3 - Files migration only (excluding backups)"
+    echo "4 - Backup folders sync only"
+    echo "5 - Full migration (including backups. Takes longer)"
+    echo "6 - Fix Wordpress permissions"
+    read -rp "Enter choice [1-6]: " mode
+
+    # Check for interrupted operations for this specific migration
+    if [[ -f "$HOME/tmp/wp_migrate_${MIGRATION_ID}_rsync_true_started" ]]; then
+        info "Found interrupted file transfer (excluding backups) for this migration. Resuming..."
+    elif [[ -f "$HOME/tmp/wp_migrate_${MIGRATION_ID}_rsync_false_started" ]]; then
+        info "Found interrupted full transfer (including backups) for this migration. Resuming..."
+    fi
+    
+    # === Time tracking ===
+    SECONDS=0
+    
+    case "$mode" in
+        1)
+            delete_current_index_html
+            run_rsync_and_file_path_fix
+            run_database_tasks
+            info "Quick migration completed in $(format_time $SECONDS)"
+            ;;
+        2)
+            run_database_tasks
+            info "Database migration took $(format_time $SECONDS)"
+            ;;
+        3)
+            delete_current_index_html
+            run_rsync_and_file_path_fix
+            info "File migration (without backups) took $(format_time $SECONDS)"
+            ;;
+        4)
+            run_backup_sync
+            info "Backup sync took $(format_time $SECONDS)"
+            ;;
+        5)  
+            delete_current_index_html
+            run_full_migration
+            info "Complete migration (including backups) took $(format_time $SECONDS)"
+            ;;
+        6)
+            set_wordpress_permissions
+            info "WordPress permissions set successfully in $(format_time $SECONDS)"
+            ;;
+        *)
+            error "Invalid choice"
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
+
