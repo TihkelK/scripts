@@ -1,0 +1,48 @@
+#!/bin/bash
+# === MY ALIASES ===
+# --- SSH CONNECTIONS ---
+alias sshv="ssh t-v-debian"
+alias sshs='[ "$(hostname -I | awk "{print \$1}")" = "192.168.1.3" ] && ssh 192.168.1.2 || ssh dev.tihkel.ee'
+alias sshu="ssh debian@uvn-72-25.tll01.zonevs.eu"
+alias ssht="ssh virt135310@tihkel.ee"
+
+# --- OTHER ---
+alias whois='whois_func() {
+  command whois "$1" | sed \
+    -e "s/Registrar:/\x1b[35m&\x1b[0m/g" \
+    -e "s/Registrant:/\x1b[35m&\x1b[0m/g" \
+    -e "/status:/s/status:\(.*\)/\x1b[35mstatus:\x1b[36m\1\x1b[0m/" \
+    -e "/Status:/s/Status:\(.*\)/\x1b[35mStatus:\x1b[36m\1\x1b[0m/" \
+    -e "s/Not Disclosed/\x1b[31m&\x1b[0m/g" \
+    -e "/Registrar:/,/^$/s/\(name:\)\(.*\)/\1\x1b[36m\2\x1b[0m/" \
+    -e "/Registrant:/,/^$/s/\(name:\)\(.*\)/\1\x1b[36m\2\x1b[0m/" \
+    -e "/Domain:/,/^$/s/\(name:\)\(.*\)/\1\x1b[35m\2\x1b[0m/" \
+    -e "/^nserver:/s/\(nserver:\)\(.*\)/\1\x1b[36m\2\x1b[0m/" \
+    -e "s/Name servers:/\x1b[35m&\x1b[0m/g" \
+    -e "s/^\(.*\)$/\x1b[32m\1\x1b[0m/" \
+    -e "s/\x1b\[35m.*\x1b\[0m/\x1b[0m&\x1b[0m/" \
+    -e "s/\x1b\[36m.*\x1b\[0m/\x1b[0m&\x1b[0m/" \
+    -e "s/\x1b\[33m.*\x1b\[0m/\x1b[0m&\x1b[0m/" \
+    -e "/Name Server:/s/\(Name Server:\)\(.*\)/\1\x1b[36m\2\x1b[0m/"
+}; whois_func'
+alias src="source ~/.bashrc"
+alias ns="bash <(curl -s vps.tihkel.ee/ns) -d"
+alias ksk="bash ~/scripts/ksk/ksk"
+alias kak="bash ~/scripts/ksk/kak"
+alias win="bash ~/scripts/win"
+alias copy="xclip -selection clipboard"
+alias ai="ollama run llama2"
+alias speak="espeak-ng -v en-gb-x-rp"
+alias search="sudo find / 2>/dev/null | grep"
+alias asd="cmatrix -C magenta -u 6"
+alias nc-host="nc -lvnp 4444"
+alias lst="tree -L 2 --dirsfirst"
+alias ..="cd .."
+alias space="bash <(curl -s vps.tihkel.ee/space)"
+alias disk="bash <(curl -s vps.tihkel.ee/disk)"
+alias inodes="bash <(curl -s vps.tihkel.ee/inodes)"
+alias splay="bash ~/scripts/max/s-query"
+alias cam="cam -c 1 --capture --sdl"
+alias amv="bash ~/scripts/amv https://www.youtube.com/playlist?list=PLPOWv0xMZ4jDnN7DRxLeJRUkKy9TGbeU-"
+alias update="sudo apt update && sudo apt upgrade"
+alias dif="git diff --stat HEAD..origin/main"
