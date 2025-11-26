@@ -4,6 +4,8 @@
 bash <(curl -s [yourdomain.com]/[script])
 ```
 
+<br>
+
 ## wp-to-zone.(ssh|ftp)
 ### Info:
 * Meant only for Zone SN servers to migrate external WordPress websites to Zone via SSH or FTP.
