@@ -37,4 +37,5 @@ bash <(curl -s [yourdomain.com]/[script])
 * If no optional params should be set, then press "Enter" or type "y" to continue.
 * If database creadentials are pre-set, then you can skip this step. If not, then a new database must be created in my.zone.eu self service with the given data.
 * After that, the migration options are shown. Select the desired option by entering the option number.
+
 After that the migration will begin and will show you if any errors/warnings come up. If none, then all done and the migration has finished.
