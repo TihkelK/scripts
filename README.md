@@ -7,14 +7,14 @@
 * KSK i.e. KIOSK : Tmux based TV kiosk showing every day things like time, calendar, spotify etc.
 * HTML i.e. curl|bash : Useful curl|bash type scripts.
 
-# SETUP/INSTALL
-# curl|bash
+## SETUP/INSTALL
+- ## curl|bash
 ```
 sudo rm -rf /var/www/html
 sudo ln -s ~/scripts/html /var/www/html
 ```
 
-## MAX and KSK
+- ## MAX and KSK
 ### Requirements:
 - ### apt install [package]
 ```
