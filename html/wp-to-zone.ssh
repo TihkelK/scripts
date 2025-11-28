@@ -49,7 +49,7 @@ check_missing_required() {
     [[ -z "$SSH_USER" ]] && missing+=("-u SSH user")
     [[ -z "$SSH_HOST" ]] && missing+=("-h SSH host/IP")
     [[ -z "$AUTH_METHOD" ]] && missing+=("-a Auth method (key/pass)")
-    [[ -z "$REMOTE_DOCROOT" ]] && missing+=("-r Remote document root")
+    [[ -z "$REMOTE_DOCROOT" ]] && missing+=("-r Remote document root ('From' folder address)")
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "Error: Missing required params:"
         for param in "${missing[@]}"; do
@@ -77,7 +77,7 @@ echo
 optional_missing=()
 [[ "$REMOTE_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-s Remote site URL (default: $REMOTE_SITE_URL)")
 [[ "$LOCAL_SITE_URL" == "https://$DOMAIN" ]] && optional_missing+=("-l Local site URL (default: $LOCAL_SITE_URL)")
-[[ "$LOCAL_DOCROOT" == "$(pwd)/domeenid/$WWWDOMAIN/htdocs" ]] && optional_missing+=("-z Zone doc root")
+[[ "$LOCAL_DOCROOT" == "$(pwd)/domeenid/$WWWDOMAIN/htdocs" ]] && optional_missing+=("-z Zone doc root ('To' folder address)")
 if [[ ${#optional_missing[@]} -gt 0 ]]; then
     echo -e "\e[1;4mOptional params:\e[0m"
     for param in "${optional_missing[@]}"; do
