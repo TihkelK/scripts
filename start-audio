@@ -1,35 +1,40 @@
 #!/bin/bash
 
-# Restart PipeWire
-rm -rf ~/.config/pipewire{,-pulse}
-systemctl --user restart pipewire pipewire-pulse
+# ==== CONFIG ==== #
+SINK_A="alsa_output.pci-0000_00_1f.3.hdmi-surround"   # Main speaker
+SINK_B="alsa_output.usb-GeneralPlus_USB_Audio_Device-00.analog-stereo" # AUX-USB
+DELAY_B=100   # Delay in ms for sink B (change this)
 
-# Wait until at least 4 sinks appear (adjust number if you expect more/less)
-echo "Waiting for audio devices..."
-for i in {1..5}; do
-    sinks=$(pactl list short sinks | awk '{print $2}')
-    count=$(echo "$sinks" | wc -l)
-    if [ "$count" -ge 4 ]; then
-        break
-    fi
-    sleep 1
-done
+# convert ms -> microseconds
+DELAY_US=$(($DELAY_B * 1000))
 
-if [ -z "$sinks" ]; then
-    echo "No sinks found! Exiting..."
-    exit 1
-fi
+echo "🔍 Waiting for PulseAudio sinks..."
+while ! pactl list short sinks | grep -q "$SINK_A"; do sleep 1; done
+while ! pactl list short sinks | grep -q "$SINK_B"; do sleep 1; done
+echo "🎧 Sinks found."
 
-# Build slaves list
-slaves=$(echo "$sinks" | tr '\n' ',' | sed 's/,$//')
+# Kill previous attempts
+pactl unload-module module-null-sink 2>/dev/null
+pactl unload-module module-loopback 2>/dev/null
+pactl unload-module module-ladspa-sink 2>/dev/null
+pactl unload-module module-combine-sink 2>/dev/null
 
-# Remove old combined sink if it exists
-if pactl list short sinks | grep -q '^.*\scombined\s'; then
-    pactl unload-module module-combine-sink 2>/dev/null
-fi
+# Create null master
+COMBINED=$(pactl load-module module-null-sink sink_name=COMB sink_properties=device.description="Combined_Output")
 
-# Load fresh combined sink
-pactl load-module module-combine-sink sink_name=combined slaves=$slaves djust_latency=yes resample_method=soxr-vhq
-pactl set-default-sink combined
+# Loop both devices to the master
+LOOP_A=$(pactl load-module module-loopback source=COMB.monitor sink="$SINK_A" latency_msec=0)
+LOOP_B=$(pactl load-module module-loopback source=COMB.monitor sink="$SINK_B" latency_msec=$DELAY_B)
 
-echo "Combined sink created with: $slaves"
+# Make it the default output
+pactl set-default-sink COMB
+
+echo
+echo "=========================================================="
+echo " 🔊 Output unified using NULL master sink"
+echo " 🕒 Delay applied to $SINK_B → ${DELAY_B}ms"
+echo " 🎶 Play music — now adjust delay live via:"
+echo
+echo "     pactl unload-module $LOOP_B"
+echo "     pactl load-module module-loopback source=COMB.monitor sink=\"$SINK_B\" latency_msec=XXXX"
+echo "=========================================================="
