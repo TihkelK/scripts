@@ -5,6 +5,7 @@ alias sshv="ssh t-v-debian"
 alias sshs='[ "$(hostname -I | awk "{print \$1}")" = "192.168.1.3" ] && ssh tihkel@192.168.1.2 || ssh tihkel@dev.tihkel.ee'
 alias sshu="ssh debian@uvn-72-25.tll01.zonevs.eu"
 alias ssht="ssh virt135310@tihkel.ee"
+alias sshk="ssh t-k-debian"
 
 # --- OTHER ---
 alias whois='whois_func() {
