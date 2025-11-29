@@ -279,7 +279,7 @@ echo "Heard: $cmd"
             adb shell input keyevent KEYCODE_WAKEUP
             hyprctl dispatch dpms on HDMI-A-1
             ;;
-        *"screen off"*|*"screen of"*)
+        *"project off"*|*"project of"*)
             echo -e "${GREEN}[$(date '+%H:%M:%S')] | Turing off projector...${RESET}" && $speak "okay"
             node ~/scripts/tuya-control/remote.js pluh-2 off
             node ~/scripts/tuya-control/remote.js pluh-2 on
