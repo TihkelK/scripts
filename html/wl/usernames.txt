@@ -1,0 +1,11 @@
+root
+kasutaja
+admin
+test
+guest
+user
+oracle
+ftp
+pi
+ansible
+vagrant
