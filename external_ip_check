@@ -1,20 +1,27 @@
 #!/bin/bash
 
+# --- SETTINGS ---
 EMAIL="info@tihkel.ee"
 USERNAME="tihkel"
+DOMAIN="vpn.tihkel.ee"
 API_KEY=$(cat ~/scripts/auth/myzone.key)
 AUTH=$(echo -n "$USERNAME:$API_KEY" | base64)
 
+# --- COLLECT VAR's ---
+RECORD_ID=$(curl -s -H "Authorization: Basic $(echo -n "tihkel:$(cat ~/scripts/auth/myzone.key)" | base64)" \
+"https://api.zone.eu/v2/dns/tihkel.ee/a" \
+| jq -r --arg domain "$DOMAIN" '.[] | select(.name==$domain) | .id')
 CURRENT_IP=$(curl -s ifconfig.me)
-LAST_IP=$(dig +short dev.tihkel.ee A | head -n1 2>/dev/null || echo '')
+LAST_IP=$(dig +short $DOMAIN A | head -n1 2>/dev/null || echo '')
 
+# --- CHECK IF IP HAS CHANGED ---
 if [ "$CURRENT_IP" != "$LAST_IP" ]; then
 
-    echo "Updating Zone DNS for dev.tihkel.ee to $CURRENT_IP..."
-    RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}\n" -X PUT "https://api.zone.eu/v2/dns/tihkel.ee/a/935143" \
+    echo "Updating Zone DNS for $DOMAIN to $CURRENT_IP..."
+    RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}\n" -X PUT "https://api.zone.eu/v2/dns/tihkel.ee/a/$RECORD_ID" \
         -H "Content-Type: application/json" \
         -H "Authorization: Basic $AUTH" \
-        -d "{\"name\": \"dev.tihkel.ee\", \"destination\": \"$CURRENT_IP\"}")
+        -d "{\"name\": \"$DOMAIN\", \"destination\": \"$CURRENT_IP\"}")
 
     echo "$RESPONSE"
 
