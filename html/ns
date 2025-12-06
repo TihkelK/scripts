@@ -16,6 +16,7 @@ deep_scan() {
     echo -e "${PURPLE} A ${RESET}"
     echo -e "${PURPLE}---${BLUE}"
     ip=$(dig +short $domain A)
+    ptr=$(host $ip | grep -i "pointer" | awk '{print $5}')
     if [ -n "$ip" ]; then
       sleep 2
       netname=$(whois "$ip" 2>/dev/null | awk 'tolower($1) == "netname:" {print $2; exit}' | tr -d '\r')
@@ -26,7 +27,7 @@ deep_scan() {
       ip="Puudub"
       netname="Location unknown"
     fi
-    echo "$ip ($netname)"
+    echo "$ip ($netname) $ptr"
     echo
 
     echo -e "${PURPLE} MX ${RESET}"

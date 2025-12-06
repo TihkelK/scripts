@@ -253,7 +253,8 @@ run_rsync() {
         --exclude='elkdata_redirect_nonwww_to_www_301'
         --exclude='elkdata_redirect_nonwww_to_www_302'
         --exclude='error_log'
-        --timeout=60
+        --exclude='kogu_htdocs.zip'
+        --timeout=600
     )
 
     # Add backup exclusions if requested
